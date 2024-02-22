@@ -1,0 +1,20 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: gorest-api--hpa-scaledobject
+  namespace: oms
+spec:
+  scaleTargetRef:
+    name: gorest-api--rolling-update
+  advanced:
+    restoreToOriginalReplicaCount: true
+  triggers:
+    - metadata:
+        value: "40"
+      metricType: Utilization
+      type: cpu
+    - metadata:
+        value: "60"
+      metricType: Utilization
+      type: memory
+

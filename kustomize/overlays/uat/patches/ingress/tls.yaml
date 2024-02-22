@@ -1,0 +1,12 @@
+- op: add
+  path: /metadata/annotations
+  value:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+
+- op: add
+  path: /spec/tls
+  value:
+    - hosts:
+        - gorest-api.uat.dp.iskaypet.com
+      secretName: gorest-api--key-pair

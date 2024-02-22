@@ -1,0 +1,137 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Provide an interface to HTTP responses.",
+        "title": "IskayPet gorest-api",
+        "contact": {},
+        "version": "v1."
+    },
+    "basePath": "/",
+    "paths": {
+        "/messages": {
+            "get": {
+                "description": "Get a message.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Custom"
+                ],
+                "summary": "Get a message",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.MessageDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/errorx.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/errorx.Error"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Create a new message.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Custom"
+                ],
+                "summary": "Create a new message",
+                "parameters": [
+                    {
+                        "description": "Message details",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.CreateMessageDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.MessageDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/errorx.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/errorx.Error"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "errorx.Error": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string",
+                    "example": "Your current balance is 30, but that costs 50."
+                },
+                "instance": {
+                    "type": "string",
+                    "example": "/account/12345/msgs/abc"
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 403
+                },
+                "title": {
+                    "type": "string",
+                    "example": "You do not have enough credit."
+                },
+                "type": {
+                    "type": "string",
+                    "example": "https://example.com/probs/out-of-credit"
+                }
+            }
+        },
+        "model.CreateMessageDTO": {
+            "type": "object",
+            "required": [
+                "msg"
+            ],
+            "properties": {
+                "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.MessageDTO": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "msg": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

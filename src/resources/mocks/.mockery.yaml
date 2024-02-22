@@ -1,0 +1,12 @@
+filename: "mock_{{.InterfaceName}}.go"
+dir: "src/resources/mocks/{{.InterfaceDirRelative}}"
+mockname: "Mock{{.InterfaceName}}"
+outpkg: "{{.PackageName}}"
+all: True
+disable-version-string: True
+with-expecter: True
+packages:
+  gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app:
+    config:
+      recursive: True
+log-level: Warn

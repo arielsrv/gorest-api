@@ -1,0 +1,203 @@
+# yaml-language-server: $schema=https://json.schemastore.org/taskfile.json
+version: '3'
+
+vars:
+  APP_NAME: gorest-api
+  APP_DOMAIN: '{{.APP_NAME}}.127.0.0.1.nip.io'
+  DOCKER_IMAGE: '{{.APP_NAME}}:latest'
+  APP_SOURCES_FOLDER: src
+  APP_ENTRY_POINT: main.go
+  APP_OUTPUT_FOLDER: build
+  APP_RELEASE: '{{.APP_OUTPUT_FOLDER}}/main/{{.APP_NAME}}{{.exeExt}}'
+  SWAG_INPUT_FOLDER: ./{{.APP_SOURCES_FOLDER}}
+  SWAG_OUTPUT_FOLDER: ./{{.APP_SOURCES_FOLDER}}/resources/docs
+  MOCKERY_FOLDER: ./{{.APP_SOURCES_FOLDER}}/resources/mocks
+  KUBERNETES_MANIFESTS_FOLDER: kustomize
+  KUBERNETES_OUTPUT_FOLDER: '{{.APP_OUTPUT_FOLDER}}/kubernetes'
+  KUBERNETES_APP_NAMESPACE: oms
+  KUBERNETES_APP_DEPLOYMENT_NAME: deployment.v1.apps/{{.APP_NAME}}--rolling-update
+  CICD_TOKEN: ${GITLAB_TOKEN}
+  CGO_ENABLED: 0
+  GO_VERSION: 1.21.7
+
+tasks:
+
+  cicd:token:
+    cmd: echo {{.CICD_TOKEN}}
+
+  k:fix:
+    desc: k8s fix
+    cmds:
+      - "echo Kubernetes context: $(kubectl config current-context)"
+      - (cd {{.KUBERNETES_MANIFESTS_FOLDER}}/base || exit ; kustomize edit fix --vars)
+      - (cd {{.KUBERNETES_MANIFESTS_FOLDER}}/overlays/{{.CLI_ARGS}} || exit ; kustomize edit fix --vars)
+
+  k:mkdir:
+    cmds:
+      - "echo OS: {{OS}}, ARCH: {{ARCH}}, CGO_ENABLED: {{.CGO_ENABLED}}"
+      - '{{if eq OS "windows"}} mkdir "{{.KUBERNETES_OUTPUT_FOLDER}}" {{else}} mkdir -p "{{.KUBERNETES_OUTPUT_FOLDER}}{{end}}"'
+
+  k:build:
+    desc: 'k8s build (output: {{.KUBERNETES_OUTPUT_FOLDER}})'
+    vars:
+      ENV: '{{.CLI_ARGS | default "local"}}'
+    cmds:
+      - "echo Kubernetes current context: $(kubectl config current-context)"
+      - task: k:mkdir
+      - |
+        kustomize build {{.KUBERNETES_MANIFESTS_FOLDER}}/overlays/{{.ENV}} \
+        --output {{.KUBERNETES_OUTPUT_FOLDER}}/release.yaml \
+        --load-restrictor LoadRestrictionsNone
+
+  k:apply:
+    desc: k8s apply
+    cmds:
+      - task: k:build
+      - test -f {{.KUBERNETES_OUTPUT_FOLDER}}/release.yaml
+      - kubectl apply -f {{.KUBERNETES_OUTPUT_FOLDER}}/release.yaml
+      - kubectl rollout restart {{.KUBERNETES_APP_DEPLOYMENT_NAME}} -n {{.KUBERNETES_APP_NAMESPACE}}
+      - kubectl rollout status {{.KUBERNETES_APP_DEPLOYMENT_NAME}} -n {{.KUBERNETES_APP_NAMESPACE}}
+
+  cert:mkdir:
+    cmds:
+      - "echo OS: {{OS}}, ARCH: {{ARCH}}, CGO_ENABLED: {{.CGO_ENABLED}}"
+      - '{{if eq OS "windows"}} mkdir "{{.APP_OUTPUT_FOLDER}}/certs" {{else}} mkdir -p "{{.APP_OUTPUT_FOLDER}}/certs{{end}}"'
+
+  k:tls:
+    desc: 'k8s tls secrets (output: {{.APP_OUTPUT_FOLDER}}/certs)'
+    vars:
+      certs: '{{.APP_OUTPUT_FOLDER}}/certs'
+    cmds:
+      - task: cert:mkdir
+      - (cd "{{.certs}}" ||exit ; mkcert --install {{.APP_DOMAIN}})
+      - test -f {{.certs}}/{{.APP_DOMAIN}}.pem
+      - test -f {{.certs}}/{{.APP_DOMAIN}}-key.pem
+      - |
+        kubectl apply -f {{.KUBERNETES_MANIFESTS_FOLDER}}/base/namespace.yaml
+        kubectl create secret tls {{.APP_NAME}}--secret \
+          --cert {{.certs}}/{{.APP_DOMAIN}}.pem \
+          --key  {{.certs}}/{{.APP_DOMAIN}}-key.pem \
+          -n {{.KUBERNETES_APP_NAMESPACE}}
+
+  k:ping:
+    desc: k8s ingress ping
+    cmds:
+      - curl https://{{.APP_DOMAIN}}/ping
+
+  k:run:
+    desc: Run relevant kubernetes tasks.
+    cmds:
+      - task: release
+      - task: docker:build
+      - task: k:build
+      - task: k:apply
+      - task: k:ping
+
+  docker:build:
+    desc: docker build
+    silent: true
+    cmds:
+      - |
+        docker build -t {{.DOCKER_IMAGE}} . \
+          --build-arg=GO_VERSION={{.GO_VERSION}} \
+          --build-arg=GITLAB_TOKEN={{.CICD_TOKEN}}
+
+  docker:run:
+    desc: docker run
+    silent: true
+    deps: [ docker:build ]
+    vars:
+      ENV: localstack
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    cmds:
+      - |
+        docker run -p 8081:8081 \
+          -e APP_NAME={{.APP_NAME}} \
+          -e ENV={{.ENV}} \
+          -e AWS_ACCESS_KEY_ID={{.AWS_ACCESS_KEY_ID}} \
+          -e AWS_SECRET_ACCESS_KEY={{.AWS_SECRET_ACCESS_KEY}} \
+          {{.DOCKER_IMAGE}}
+
+  lint:
+    desc: Use golangci-lint (.golangci.yml).
+    cmds:
+      - golangci-lint run --fix
+
+  test:race:
+    deps: [ test:mock ]
+    desc: Race conditions check for unit test.
+    cmds:
+      - go test -race ./...
+
+  test:
+    cmds:
+      - task: test:unit
+      - task: test:race
+
+  test:cover:
+    deps: [ test:mock ]
+    desc: 'Coverage report (output: {{.APP_OUTPUT_FOLDER}}/reports)'
+    vars:
+      REPORTS: '{{.APP_OUTPUT_FOLDER}}/reports'
+    cmds:
+      - mkdir -p {{.REPORTS}}
+      - APP_NAME={{.APP_NAME}} go test -coverprofile {{.REPORTS}}/cover.out ./{{.APP_SOURCES_FOLDER}}/...
+      - go tool cover -html {{.REPORTS}}/cover.out -o {{.REPORTS}}/cover.html
+      - go tool cover -func={{.REPORTS}}/cover.out
+      - open {{.REPORTS}}/cover.html
+
+  test:unit:
+    deps: [ test:mock ]
+    desc: Run unit test.
+    cmds:
+      - go test ./...
+
+  test:mock:
+    desc: Create mocks
+    cmds:
+      - go install github.com/vektra/mockery/v2@latest
+      - mockery --config {{.MOCKERY_FOLDER}}/.mockery.yaml
+      - task: lint
+
+  download:
+    desc: Run go mod tidy.
+    cmds:
+      - go mod tidy
+
+  upgrade:
+    deps: [ download ]
+    desc: Check for latest direct dependencies.
+    cmds:
+      - go install github.com/oligot/go-mod-upgrade@latest
+      - go-mod-upgrade
+
+  swagger:
+    desc: 'Generate RESTful API documentation with Swagger, (output: {{.SWAG_OUTPUT_FOLDER}})'
+    cmds:
+      - go install github.com/swaggo/swag/cmd/swag@latest
+      - swag init -d {{.SWAG_INPUT_FOLDER}} -g {{.APP_ENTRY_POINT}} -o {{.SWAG_OUTPUT_FOLDER}} --parseGoList --parseDependency
+
+  build:
+    desc: 'Build the go exe (output: {{.APP_RELEASE}})'
+    deps: [ download ]
+    cmds:
+      - "echo OS: {{OS}}, ARCH: {{ARCH}}, CGO_ENABLED: {{.CGO_ENABLED}}"
+      - go build -v -o {{.APP_RELEASE}} {{.APP_SOURCES_FOLDER}}/*.go
+
+  run:
+    desc: runs the main
+    deps: [ build ]
+    cmds:
+      - 'APP_NAME={{.APP_NAME}} {{.APP_RELEASE}}'
+
+  release:
+    desc: Run relevant tasks.
+    cmds:
+      - task: download
+      - task: test
+      - task: build
+
+  default:
+    cmds:
+      - task: release

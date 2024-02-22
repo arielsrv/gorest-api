@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../../base
+- scaler.yaml
+
+patches:
+- path: patches/config.yaml
+- path: patches/ingress/tls.yaml
+  target:
+    name: ingress
+- path: patches/ingress/host.yaml
+  target:
+    name: ingress
+- path: patches/deployment/metrics.yaml
+  target:
+    name: rolling-update
+- path: patches/deployment/flavour.yaml
+  target:
+    name: rolling-update
+- path: patches/deployment/affinity.yaml
+  target:
+    name: rolling-update
+- path: patches/deployment/service-account.yaml
+  target:
+    name: rolling-update
+- path: patches/scaled-object/replicas.yaml
+  target:
+    name: gorest-api--hpa-scaledobject

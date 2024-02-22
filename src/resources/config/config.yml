@@ -1,0 +1,3 @@
+app_name: gorest-api
+server.port: 8081
+message: hello from shared config

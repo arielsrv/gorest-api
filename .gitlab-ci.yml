@@ -1,0 +1,8 @@
+include:
+  - project: iskaypetcom/digital/oms/pipelines
+    file: go/app/.gitlab-ci.yml
+    ref: main
+
+variables:
+  GO_VERSION: 1.21.7
+  CODECOMMIT_PROJECT_FOLDER: oms

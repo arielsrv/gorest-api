@@ -1,0 +1,6 @@
+- op: add
+  path: /spec/template/metadata/annotations
+  value:
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8081"
+    prometheus.io/scrape: "true"

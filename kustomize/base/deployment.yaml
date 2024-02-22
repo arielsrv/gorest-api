@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rolling-update
+spec:
+  replicas: 2
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      name: gorest-api
+  template:
+    metadata:
+      labels:
+        name: gorest-api
+    spec:
+      containers:
+        - ports:
+            - containerPort: 8081
+              name: container-port
+          name: gorest-api
+          resources:
+            limits:
+              cpu: 750m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          image: gorest-api:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: config
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: container-port
+              scheme: HTTP
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: container-port
+              scheme: HTTP
+      restartPolicy: Always
+  strategy:
+    type: RollingUpdate
