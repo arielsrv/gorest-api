@@ -76,8 +76,10 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 
 				for k := 0; k < len(response); k++ {
 					postID := response[k].ID
-					cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
-						return r.userClient.GetComments(postID)
+					pool.Submit(func() {
+						cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
+							return r.userClient.GetComments(postID)
+						})
 					})
 				}
 
