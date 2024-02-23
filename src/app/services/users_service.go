@@ -1,6 +1,7 @@
 package services
 
 import (
+	"github.com/sourcegraph/conc/pool"
 	"runtime"
 	"slices"
 	"sync"
@@ -13,6 +14,7 @@ import (
 
 type IUsersService interface {
 	GetUsers() ([]model.UserDTO, error)
+	GetUsers2() ([]model.UserDTO, error)
 }
 
 type UsersService struct {
@@ -210,4 +212,123 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	})
 
 	return result, nil
+}
+
+func (r *UsersService) GetUsers2() ([]model.UserDTO, error) {
+	var users []model.UserDTO
+	posts := make(map[int][]model.PostDTO)
+	todos := make(map[int][]model.TodoDTO)
+
+	userResponses, err := r.userClient.GetUsers()
+	if err != nil {
+		return nil, err
+	}
+
+	uChan := make(chan Task[*model.UserResponse])
+	pChan := make(chan Task[[]model.PostResponse])
+	tChan := make(chan Task[[]model.TodoResponse])
+
+	var aggErr error
+
+	consume := pool.New()
+
+	consume.Go(func() {
+		for userTask := range uChan {
+			if userTask.Err != nil {
+				aggErr = multierr.Append(aggErr, userTask.Err)
+				continue
+			}
+
+			userDTO := model.UserDTO{
+				Posts:  make([]model.PostDTO, 0),
+				Todos:  make([]model.TodoDTO, 0),
+				ID:     userTask.Result.ID,
+				Name:   userTask.Result.Name,
+				Email:  userTask.Result.Email,
+				Gender: userTask.Result.Gender,
+				Status: userTask.Result.Status,
+			}
+
+			users = append(users, userDTO)
+		}
+	})
+
+	consume.Go(func() {
+		for postTask := range pChan {
+			if postTask.Err != nil {
+				aggErr = multierr.Append(aggErr, postTask.Err)
+				continue
+			}
+
+			for i := 0; i < len(postTask.Result); i++ {
+				userID := postTask.Result[i].UserID
+
+				postDTO := model.PostDTO{
+					Comments: make([]model.CommentDTO, 0),
+					ID:       postTask.Result[i].ID,
+					Title:    postTask.Result[i].Title,
+					Body:     postTask.Result[i].Body,
+				}
+
+				posts[userID] = append(posts[userID], postDTO)
+			}
+		}
+	})
+
+	consume.Go(func() {
+		for todoTask := range tChan {
+			if todoTask.Err != nil {
+				aggErr = multierr.Append(aggErr, todoTask.Err)
+				continue
+			}
+			for i := 0; i < len(todoTask.Result); i++ {
+				userID := todoTask.Result[i].UserID
+
+				todoDTO := model.TodoDTO{
+					ID:     todoTask.Result[i].ID,
+					Title:  todoTask.Result[i].Title,
+					DueOn:  todoTask.Result[i].DueOn,
+					Status: todoTask.Result[i].Status,
+				}
+
+				todos[userID] = append(todos[userID], todoDTO)
+			}
+		}
+	})
+
+	produce := pool.New()
+	for i := 0; i < len(userResponses); i++ {
+		produce.Go(func() {
+			uChan <- ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
+				return r.userClient.GetUser(userResponses[i].ID)
+			})
+		})
+		produce.Go(func() {
+			pChan <- ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
+				return r.userClient.GetPosts(userResponses[i].ID)
+			})
+		})
+		produce.Go(func() {
+			tChan <- ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
+				return r.userClient.GetTodos(userResponses[i].ID)
+			})
+		})
+	}
+
+	produce.Wait()
+
+	if aggErr != nil {
+		return nil, aggErr
+	}
+
+	for i := 0; i < len(users); i++ {
+		if posts[users[i].ID] != nil {
+			users[i].Posts = append(users[i].Posts, posts[users[i].ID]...)
+		}
+		if todos[users[i].ID] != nil {
+			users[i].Todos = append(users[i].Todos, todos[users[i].ID]...)
+		}
+	}
+
+	return users, nil
 }

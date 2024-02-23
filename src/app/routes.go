@@ -14,4 +14,5 @@ type Routes struct {
 
 func (r *Routes) Register() {
 	r.AddRoute(http.MethodGet, "/users", container.Provide[controllers.IUsersController]().GetUsers)
+	r.AddRoute(http.MethodGet, "/users2", container.Provide[controllers.IUsersController]().GetUsers2)
 }
