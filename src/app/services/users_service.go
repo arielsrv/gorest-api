@@ -3,9 +3,9 @@ package services
 import (
 	"runtime"
 	"slices"
+	"sync"
 
 	"github.com/alitto/pond"
-
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/clients"
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/model"
 	"go.uber.org/multierr"
@@ -45,15 +45,16 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		return nil, err
 	}
 
-	uChan := make(chan Task[*model.UserResponse])
-	pChan := make(chan Task[[]model.PostResponse])
-	tChan := make(chan Task[[]model.TodoResponse])
-	cChan := make(chan Task[[]model.CommentResponse], 100)
+	uChan := make(chan Task[*model.UserResponse], len(userResponses))
+	pChan := make(chan Task[[]model.PostResponse], len(userResponses))
+	tChan := make(chan Task[[]model.TodoResponse], len(userResponses))
 
 	var aggErr error
 	var users []model.UserResponse
 	posts := make(map[int][]model.PostResponse)
 	todos := make(map[int][]model.TodoResponse)
+
+	var mtx sync.RWMutex
 	comments := make(map[int][]model.CommentResponse)
 
 	pool := pond.New(runtime.NumCPU()-1, 100)
@@ -74,14 +75,35 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 					return nil, pErr
 				}
 
+				commentsPool := pond.New(runtime.NumCPU()-1, 100)
+				cChan := make(chan Task[[]model.CommentResponse], len(userResponses))
+
 				for k := 0; k < len(response); k++ {
 					postID := response[k].ID
-					pool.Submit(func() {
+					commentsPool.Submit(func() {
 						cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
 							return r.userClient.GetComments(postID)
 						})
 					})
 				}
+
+				commentsPool.Submit(func() {
+					for k := 0; k < len(response); k++ {
+						cTask := <-cChan
+						if cTask.Err != nil {
+							aggErr = multierr.Append(aggErr, cTask.Err)
+							continue
+						}
+						for j := 0; j < len(cTask.Result); j++ {
+							postID := cTask.Result[j].PostID
+							mtx.Lock()
+							comments[postID] = append(comments[postID], cTask.Result[j])
+							mtx.Unlock()
+						}
+					}
+				})
+
+				commentsPool.StopAndWait()
 
 				return response, nil
 			})
@@ -94,52 +116,38 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		})
 	}
 
-	for i := 0; i < len(userResponses)*3; i++ {
-		select {
-		case uTask := <-uChan:
-			if uTask.Err != nil {
-				aggErr = multierr.Append(aggErr, uTask.Err)
-				continue
-			}
-			users = append(users, *uTask.Result)
-		case pTask := <-pChan:
-			if pTask.Err != nil {
-				aggErr = multierr.Append(aggErr, pTask.Err)
-				continue
-			}
-			for k := 0; k < len(pTask.Result); k++ {
-				userID := pTask.Result[k].UserID
-				posts[userID] = append(posts[userID], pTask.Result[k])
-			}
-		case tTask := <-tChan:
-			if tTask.Err != nil {
-				aggErr = multierr.Append(aggErr, tTask.Err)
-				continue
-			}
-			for k := 0; k < len(tTask.Result); k++ {
-				userID := tTask.Result[k].UserID
-				todos[userID] = append(todos[userID], tTask.Result[k])
+	pool.Submit(func() {
+		for i := 0; i < len(userResponses)*3; i++ {
+			select {
+			case uTask := <-uChan:
+				if uTask.Err != nil {
+					aggErr = multierr.Append(aggErr, uTask.Err)
+					continue
+				}
+				users = append(users, *uTask.Result)
+			case pTask := <-pChan:
+				if pTask.Err != nil {
+					aggErr = multierr.Append(aggErr, pTask.Err)
+					continue
+				}
+				for k := 0; k < len(pTask.Result); k++ {
+					userID := pTask.Result[k].UserID
+					posts[userID] = append(posts[userID], pTask.Result[k])
+				}
+			case tTask := <-tChan:
+				if tTask.Err != nil {
+					aggErr = multierr.Append(aggErr, tTask.Err)
+					continue
+				}
+				for k := 0; k < len(tTask.Result); k++ {
+					userID := tTask.Result[k].UserID
+					todos[userID] = append(todos[userID], tTask.Result[k])
+				}
 			}
 		}
-	}
+	})
 
 	pool.StopAndWait()
-
-	close(uChan)
-	close(pChan)
-	close(tChan)
-	close(cChan)
-
-	for cTask := range cChan {
-		if cTask.Err != nil {
-			aggErr = multierr.Append(aggErr, cTask.Err)
-			continue
-		}
-		for k := 0; k < len(cTask.Result); k++ {
-			postID := cTask.Result[k].PostID
-			comments[postID] = append(comments[postID], cTask.Result[k])
-		}
-	}
 
 	if aggErr != nil {
 		return nil, aggErr
