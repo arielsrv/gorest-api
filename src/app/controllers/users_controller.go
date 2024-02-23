@@ -7,7 +7,6 @@ import (
 
 type IUsersController interface {
 	GetUsers(ctx *routing.HTTPContext) error
-	GetUsers2(ctx *routing.HTTPContext) error
 }
 
 type UsersController struct {
@@ -22,15 +21,6 @@ func NewUsersController(usersService services.IUsersService) *UsersController {
 
 func (r UsersController) GetUsers(ctx *routing.HTTPContext) error {
 	result, err := r.usersService.GetUsers()
-	if err != nil {
-		return err
-	}
-
-	return ctx.JSON(result)
-}
-
-func (r UsersController) GetUsers2(ctx *routing.HTTPContext) error {
-	result, err := r.usersService.GetUsers2()
 	if err != nil {
 		return err
 	}
