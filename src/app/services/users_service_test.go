@@ -13,11 +13,10 @@ import (
 func TestService_GetUsers(t *testing.T) {
 	userClient := clients.NewMockIUserClient(t)
 	userClient.EXPECT().GetUsers().Return([]model.UserResponse{{ID: 1}}, nil)
-
 	userClient.EXPECT().GetUser(1).Return(&model.UserResponse{ID: 1}, nil)
 	userClient.EXPECT().GetPosts(1).Return([]model.PostResponse{{ID: 1, UserID: 1, Title: "Hello world!", Body: "From Golang"}}, nil)
 	userClient.EXPECT().GetTodos(1).Return([]model.TodoResponse{{ID: 1, UserID: 1, Title: "Hello world!"}}, nil)
-	userClient.EXPECT().GetComments(1).Return([]model.CommentResponse{{ID: 1, Name: "Hello world!"}}, nil)
+	userClient.EXPECT().GetComments(1).Return([]model.CommentResponse{{ID: 1, PostID: 1, Name: "Hello world!"}}, nil)
 
 	userService := services.NewUserService(userClient)
 

@@ -1,11 +1,12 @@
 package services
 
 import (
+	"slices"
+
 	"github.com/sourcegraph/conc/pool"
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/clients"
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/model"
 	"go.uber.org/multierr"
-	"slices"
 )
 
 type IUsersService interface {
@@ -36,6 +37,51 @@ func ToTask[T any](f func() (T, error)) Task[T] {
 	}
 }
 
+func (r *UsersService) GetComments(posts []model.PostDTO) ([]model.CommentDTO, error) {
+	var comments []model.CommentDTO
+
+	cChan := make(chan Task[[]model.CommentResponse])
+
+	var aggErr error
+	consume := pool.New()
+	consume.Go(func() {
+		for commentTask := range cChan {
+			if commentTask.Err != nil {
+				aggErr = multierr.Append(aggErr, commentTask.Err)
+				continue
+			}
+
+			for i := 0; i < len(commentTask.Result); i++ {
+				commentDTO := model.CommentDTO{
+					ID:     commentTask.Result[i].ID,
+					PostID: commentTask.Result[i].PostID,
+					Name:   commentTask.Result[i].Name,
+					Email:  commentTask.Result[i].Email,
+					Body:   commentTask.Result[i].Body,
+				}
+				comments = append(comments, commentDTO)
+			}
+		}
+	})
+
+	produce := pool.New()
+	for i := 0; i < len(posts); i++ {
+		produce.Go(func() {
+			cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
+				return r.userClient.GetComments(posts[i].ID)
+			})
+		})
+	}
+
+	produce.Wait()
+
+	if aggErr != nil {
+		return nil, aggErr
+	}
+
+	return comments, nil
+}
+
 func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	var users []model.UserDTO
 
@@ -50,7 +96,6 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 
 	posts := make(map[int][]model.PostDTO)
 	todos := make(map[int][]model.TodoDTO)
-	comments := make(map[int][]model.CommentDTO)
 
 	consume := pool.New()
 
@@ -75,16 +120,12 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	cChan := make(chan Task[[]model.CommentResponse])
-
 	consume.Go(func() {
 		for postTask := range pChan {
 			if postTask.Err != nil {
 				aggErr = multierr.Append(aggErr, postTask.Err)
 				continue
 			}
-
-			produce := pool.New()
 
 			for i := 0; i < len(postTask.Result); i++ {
 				userID := postTask.Result[i].UserID
@@ -96,36 +137,28 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 					Body:     postTask.Result[i].Body,
 				}
 
-				posts[userID] = append(posts[userID], postDTO)
-
-				produce.Go(func() {
-					cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
-						return r.userClient.GetComments(postDTO.ID)
-					})
-				})
-			}
-
-			produce.Wait()
-		}
-	})
-
-	consume.Go(func() {
-		for commentsTask := range cChan {
-			if commentsTask.Err != nil {
-				aggErr = multierr.Append(aggErr, commentsTask.Err)
-				continue
-			}
-			for i := 0; i < len(commentsTask.Result); i++ {
-				postID := commentsTask.Result[i].PostID
-
-				commentDTO := model.CommentDTO{
-					ID:    commentsTask.Result[i].ID,
-					Name:  commentsTask.Result[i].Name,
-					Email: commentsTask.Result[i].Email,
-					Body:  commentsTask.Result[i].Body,
+				commentsResponse, err := r.userClient.GetComments(postDTO.ID)
+				if err != nil {
+					aggErr = multierr.Append(aggErr, err)
+					continue
 				}
 
-				comments[postID] = append(comments[postID], commentDTO)
+				for k := 0; k < len(commentsResponse); k++ {
+					commentDTO := model.CommentDTO{
+						ID:     commentsResponse[k].ID,
+						PostID: commentsResponse[k].PostID,
+						Name:   commentsResponse[k].Name,
+						Email:  commentsResponse[k].Email,
+						Body:   commentsResponse[k].Body,
+					}
+					postDTO.Comments = append(postDTO.Comments, commentDTO)
+				}
+
+				slices.SortFunc(postDTO.Comments, func(a, b model.CommentDTO) int {
+					return a.ID - b.ID
+				})
+
+				posts[userID] = append(posts[userID], postDTO)
 			}
 		}
 	})
@@ -184,11 +217,6 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	for i := 0; i < len(users); i++ {
 		if posts[users[i].ID] != nil {
 			users[i].Posts = append(users[i].Posts, posts[users[i].ID]...)
-			for k := 0; k < len(posts[users[i].ID]); k++ {
-				if comments[posts[users[i].ID][k].ID] != nil {
-					users[i].Posts[k].Comments = append(users[i].Posts[k].Comments, comments[posts[users[i].ID][k].ID]...)
-				}
-			}
 		}
 		if todos[users[i].ID] != nil {
 			users[i].Todos = append(users[i].Todos, todos[users[i].ID]...)
