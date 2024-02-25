@@ -17,12 +17,12 @@ func TestService_GetUsers(t *testing.T) {
 
 	userClient.EXPECT().GetUser(1).Return(&model.UserResponse{ID: 1}, nil)
 	userClient.EXPECT().GetPosts(1).Return([]model.PostResponse{{ID: 1, UserID: 1, Title: "post1"}}, nil)
-	userClient.EXPECT().GetComments(1).Return([]model.CommentResponse{{ID: 1, PostID: 1, Name: "comment1"}}, nil)
+	userClient.EXPECT().GetComments(1).Return([]model.CommentResponse{{ID: 1, PostID: 1, Name: "comment1"}, {ID: 2, PostID: 1, Name: "comment2"}}, nil)
 	userClient.EXPECT().GetTodos(1).Return([]model.TodoResponse{{ID: 1, UserID: 1, Title: "todo1"}}, nil)
 
 	userClient.EXPECT().GetUser(2).Return(&model.UserResponse{ID: 2}, nil)
 	userClient.EXPECT().GetPosts(2).Return([]model.PostResponse{{ID: 2, UserID: 2, Title: "post2"}}, nil)
-	userClient.EXPECT().GetComments(2).Return([]model.CommentResponse{{ID: 2, PostID: 2, Name: "comment2"}}, nil)
+	userClient.EXPECT().GetComments(2).Return([]model.CommentResponse{{ID: 3, PostID: 2, Name: "comment2"}}, nil)
 	userClient.EXPECT().GetTodos(2).Return([]model.TodoResponse{{ID: 2, UserID: 2, Title: "todo2"}}, nil)
 
 	userService := services.NewUserService(userClient)
@@ -32,10 +32,17 @@ func TestService_GetUsers(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, users)
 	assert.Len(t, users, 2)
+	assert.Equal(t, users[0].ID, 1)
+	assert.Equal(t, users[1].ID, 2)
 
 	assert.Len(t, users[0].Posts, 1)
+	assert.Equal(t, users[0].Posts[0].ID, 1)
+	assert.Len(t, users[0].Posts[0].Comments, 2)
+	assert.Equal(t, users[0].Posts[0].Comments[0].ID, 1)
+	assert.Equal(t, users[0].Posts[0].Comments[1].ID, 2)
 	assert.Len(t, users[0].Todos, 1)
 
 	assert.Len(t, users[1].Posts, 1)
+	assert.Len(t, users[1].Posts[0].Comments, 1)
 	assert.Len(t, users[1].Todos, 1)
 }
