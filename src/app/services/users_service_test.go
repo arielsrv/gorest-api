@@ -11,19 +11,19 @@ import (
 )
 
 func TestService_GetUsers(t *testing.T) {
-	userClient := &clients.MockIUserClient{}
+	userClient := clients.NewMockIUserClient(t)
 
-	userClient.On("GetUsers").Return([]model.UserResponse{{ID: 1}, {ID: 2}}, nil)
+	userClient.EXPECT().GetUsers().Return([]model.UserResponse{{ID: 1}, {ID: 2}}, nil)
 
-	userClient.On("GetUser", 1).Return(&model.UserResponse{ID: 1}, nil)
-	userClient.On("GetPosts", 1).Return([]model.PostResponse{{ID: 1, UserID: 1, Title: "post1"}}, nil)
-	userClient.On("GetComments", 1).Return([]model.CommentResponse{{ID: 1, PostID: 1, Name: "comment1"}}, nil)
-	userClient.On("GetTodos", 1).Return([]model.TodoResponse{{ID: 1, UserID: 1, Title: "todo1"}}, nil)
+	userClient.EXPECT().GetUser(1).Return(&model.UserResponse{ID: 1}, nil)
+	userClient.EXPECT().GetPosts(1).Return([]model.PostResponse{{ID: 1, UserID: 1, Title: "post1"}}, nil)
+	userClient.EXPECT().GetComments(1).Return([]model.CommentResponse{{ID: 1, PostID: 1, Name: "comment1"}}, nil)
+	userClient.EXPECT().GetTodos(1).Return([]model.TodoResponse{{ID: 1, UserID: 1, Title: "todo1"}}, nil)
 
-	userClient.On("GetUser", 2).Return(&model.UserResponse{ID: 2}, nil)
-	userClient.On("GetPosts", 2).Return([]model.PostResponse{{ID: 2, UserID: 2, Title: "post2"}}, nil)
-	userClient.On("GetComments", 2).Return([]model.CommentResponse{{ID: 2, PostID: 2, Name: "comment2"}}, nil)
-	userClient.On("GetTodos", 2).Return([]model.TodoResponse{{ID: 2, UserID: 2, Title: "todo2"}}, nil)
+	userClient.EXPECT().GetUser(2).Return(&model.UserResponse{ID: 2}, nil)
+	userClient.EXPECT().GetPosts(2).Return([]model.PostResponse{{ID: 2, UserID: 2, Title: "post2"}}, nil)
+	userClient.EXPECT().GetComments(2).Return([]model.CommentResponse{{ID: 2, PostID: 2, Name: "comment2"}}, nil)
+	userClient.EXPECT().GetTodos(2).Return([]model.TodoResponse{{ID: 2, UserID: 2, Title: "todo2"}}, nil)
 
 	userService := services.NewUserService(userClient)
 
