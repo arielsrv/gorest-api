@@ -7,6 +7,7 @@ toolchain go1.21.7
 require (
 	github.com/alitto/pond v1.8.3
 	github.com/prometheus/client_golang v1.18.0
+	github.com/sourcegraph/conc v0.3.0
 	github.com/stretchr/testify v1.8.4
 	github.com/swaggo/swag v1.16.3
 	gitlab.com/iskaypetcom/digital/sre/tools/dev/backend-api-sdk/v2 v2.3.7
@@ -65,7 +66,6 @@ require (
 	github.com/samber/lo v1.38.1 // indirect
 	github.com/samber/oops v1.10.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/spf13/cast v1.6.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect

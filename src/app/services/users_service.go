@@ -1,9 +1,9 @@
 package services
 
 import (
-	"github.com/alitto/pond"
-	"runtime"
 	"slices"
+
+	"github.com/sourcegraph/conc/pool"
 
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/clients"
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/model"
@@ -53,9 +53,9 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	var posts []model.PostDTO
 	var todos []model.TodoDTO
 
-	produce := pond.New(runtime.NumCPU()-1, len(userResponses)*3)
+	parent := pool.New()
 
-	produce.Submit(func() {
+	parent.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
 			userTask := <-uChan
 			if userTask.Err != nil {
@@ -77,7 +77,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	produce.Submit(func() {
+	parent.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
 			postTask := <-pChan
 			if postTask.Err != nil {
@@ -93,34 +93,63 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 					Title:    postTask.Result[k].Title,
 					Body:     postTask.Result[k].Body,
 				}
-
-				commentsResponse, err := r.userClient.GetComments(postDTO.ID)
-				if err != nil {
-					aggErr = multierr.Append(aggErr, err)
-					continue
-				}
-
-				for j := 0; j < len(commentsResponse); j++ {
-					commentDTO := &model.CommentDTO{
-						ID:     commentsResponse[j].ID,
-						PostID: commentsResponse[j].PostID,
-						Name:   commentsResponse[j].Name,
-						Email:  commentsResponse[j].Email,
-						Body:   commentsResponse[j].Body,
-					}
-					postDTO.Comments = append(postDTO.Comments, *commentDTO)
-				}
-
-				slices.SortFunc(postDTO.Comments, func(a, b model.CommentDTO) int {
-					return a.ID - b.ID
-				})
-
 				posts = append(posts, postDTO)
+			}
+		}
+
+		if aggErr != nil {
+			return
+		}
+
+		var comments []model.CommentDTO
+		cChan := make(chan Task[[]model.CommentResponse], len(posts))
+		child := pool.New()
+
+		child.Go(func() {
+			for i := 0; i < len(posts); i++ {
+				commentTask := <-cChan
+				if commentTask.Err != nil {
+					aggErr = multierr.Append(aggErr, commentTask.Err)
+					return
+				}
+				for k := 0; k < len(commentTask.Result); k++ {
+					commentDTO := &model.CommentDTO{
+						ID:     commentTask.Result[k].ID,
+						PostID: commentTask.Result[k].PostID,
+						Name:   commentTask.Result[k].Name,
+						Email:  commentTask.Result[k].Email,
+						Body:   commentTask.Result[k].Body,
+					}
+					comments = append(comments, *commentDTO)
+				}
+			}
+		})
+
+		child.Go(func() {
+			for i := 0; i < len(posts); i++ {
+				cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
+					return r.userClient.GetComments(posts[i].ID)
+				})
+			}
+		})
+
+		child.Wait()
+
+		if aggErr != nil {
+			return
+		}
+
+		for i := 0; i < len(posts); i++ {
+			post := &posts[i]
+			for k := 0; k < len(comments); k++ {
+				if post.ID == comments[k].PostID {
+					post.Comments = append(post.Comments, comments[k])
+				}
 			}
 		}
 	})
 
-	produce.Submit(func() {
+	parent.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
 			todoTask := <-tChan
 			if todoTask.Err != nil {
@@ -141,7 +170,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	produce.Submit(func() {
+	parent.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
 			uChan <- ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
 				return r.userClient.GetUser(userResponses[i].ID)
@@ -149,7 +178,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	produce.Submit(func() {
+	parent.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
 			pChan <- ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
 				return r.userClient.GetPosts(userResponses[i].ID)
@@ -157,7 +186,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	produce.Submit(func() {
+	parent.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
 			tChan <- ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
 				return r.userClient.GetTodos(userResponses[i].ID)
@@ -165,7 +194,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	produce.StopAndWait()
+	parent.Wait()
 
 	if aggErr != nil {
 		return nil, aggErr
