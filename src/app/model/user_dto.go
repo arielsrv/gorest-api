@@ -24,7 +24,7 @@ type PostDTO struct {
 
 type TodoDTO struct {
 	ID     int       `json:"id"`
-	UserID int       `json:"_"`
+	UserID int       `json:"user_id"`
 	Title  string    `json:"title"`
 	DueOn  time.Time `json:"due_on"`
 	Status string    `json:"status"`
@@ -32,7 +32,7 @@ type TodoDTO struct {
 
 type CommentDTO struct {
 	ID     int    `json:"id"`
-	PostID int    `json:"_"`
+	PostID int    `json:"post_id"`
 	Name   string `json:"name"`
 	Email  string `json:"email"`
 	Body   string `json:"body"`

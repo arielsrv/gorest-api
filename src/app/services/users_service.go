@@ -1,6 +1,7 @@
 package services
 
 import (
+	"runtime"
 	"slices"
 
 	"github.com/sourcegraph/conc/pool"
@@ -55,147 +56,191 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	var posts []model.PostDTO
 	var todos []model.TodoDTO
 
-	parent := pool.New().WithMaxGoroutines(6)
-
+	parent := pool.New().WithMaxGoroutines(3)
 	parent.Go(func() {
-		for i := 0; i < len(userResponses); i++ {
-			userTask := <-uChan
-			if userTask.Err != nil {
-				aggErr = multierr.Append(aggErr, userTask.Err)
-				return
-			}
-
-			userDTO := &model.UserDTO{
-				ID:     userTask.Result.ID,
-				Name:   userTask.Result.Name,
-				Email:  userTask.Result.Email,
-				Gender: userTask.Result.Gender,
-				Status: userTask.Result.Status,
-				Posts:  make([]model.PostDTO, 0),
-				Todos:  make([]model.TodoDTO, 0),
-			}
-
-			users = append(users, *userDTO)
-		}
-	})
-
-	parent.Go(func() {
-		for i := 0; i < len(userResponses); i++ {
-			postTask := <-pChan
-			if postTask.Err != nil {
-				aggErr = multierr.Append(aggErr, postTask.Err)
-				return
-			}
-
-			for k := 0; k < len(postTask.Result); k++ {
-				postDTO := model.PostDTO{
-					Comments: make([]model.CommentDTO, 0),
-					ID:       postTask.Result[k].ID,
-					UserID:   postTask.Result[k].UserID,
-					Title:    postTask.Result[k].Title,
-					Body:     postTask.Result[k].Body,
-				}
-				posts = append(posts, postDTO)
-			}
-		}
-
-		if aggErr != nil {
-			return
-		}
-
-		var comments []model.CommentDTO
-		cChan := make(chan Task[[]model.CommentResponse], len(posts))
-		child := pool.New()
+		child := pool.New().WithMaxGoroutines(2)
 
 		child.Go(func() {
-			for i := 0; i < len(posts); i++ {
-				commentTask := <-cChan
-				if commentTask.Err != nil {
-					aggErr = multierr.Append(aggErr, commentTask.Err)
+			for i := 0; i < len(userResponses); i++ {
+				userTask := <-uChan
+				if userTask.Err != nil {
+					aggErr = multierr.Append(aggErr, userTask.Err)
 					return
 				}
-				for k := 0; k < len(commentTask.Result); k++ {
-					commentDTO := &model.CommentDTO{
-						ID:     commentTask.Result[k].ID,
-						PostID: commentTask.Result[k].PostID,
-						Name:   commentTask.Result[k].Name,
-						Email:  commentTask.Result[k].Email,
-						Body:   commentTask.Result[k].Body,
-					}
-					comments = append(comments, *commentDTO)
+
+				userDTO := &model.UserDTO{
+					ID:     userTask.Result.ID,
+					Name:   userTask.Result.Name,
+					Email:  userTask.Result.Email,
+					Gender: userTask.Result.Gender,
+					Status: userTask.Result.Status,
+					Posts:  make([]model.PostDTO, 0),
+					Todos:  make([]model.TodoDTO, 0),
 				}
+
+				users = append(users, *userDTO)
 			}
 		})
 
 		child.Go(func() {
-			iter.ForEach(posts, func(postDTO *model.PostDTO) {
-				cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
-					return r.userClient.GetComments(postDTO.ID)
+			maxGoroutines := runtime.NumCPU()
+			if len(userResponses) < maxGoroutines {
+				maxGoroutines = len(userResponses)
+			}
+
+			it := iter.Iterator[model.UserResponse]{
+				MaxGoroutines: maxGoroutines,
+			}
+
+			it.ForEach(userResponses, func(userResponse *model.UserResponse) {
+				uChan <- ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
+					return r.userClient.GetUser(userResponse.ID)
 				})
 			})
 		})
 
 		child.Wait()
+	})
+	parent.Go(func() {
+		child := pool.New().WithMaxGoroutines(2)
+		child.Go(func() {
+			for i := 0; i < len(userResponses); i++ {
+				postTask := <-pChan
+				if postTask.Err != nil {
+					aggErr = multierr.Append(aggErr, postTask.Err)
+					return
+				}
 
-		if aggErr != nil {
-			return
-		}
-
-		for i := 0; i < len(posts); i++ {
-			post := &posts[i]
-			for k := 0; k < len(comments); k++ {
-				if post.ID == comments[k].PostID {
-					post.Comments = append(post.Comments, comments[k])
+				for k := 0; k < len(postTask.Result); k++ {
+					postDTO := model.PostDTO{
+						Comments: make([]model.CommentDTO, 0),
+						ID:       postTask.Result[k].ID,
+						UserID:   postTask.Result[k].UserID,
+						Title:    postTask.Result[k].Title,
+						Body:     postTask.Result[k].Body,
+					}
+					posts = append(posts, postDTO)
 				}
 			}
-		}
-	})
 
-	parent.Go(func() {
-		for i := 0; i < len(userResponses); i++ {
-			todoTask := <-tChan
-			if todoTask.Err != nil {
-				aggErr = multierr.Append(aggErr, todoTask.Err)
+			if aggErr != nil {
 				return
 			}
-			for k := 0; k < len(todoTask.Result); k++ {
-				todoDTO := model.TodoDTO{
-					ID:     todoTask.Result[k].ID,
-					UserID: todoTask.Result[k].UserID,
-					Title:  todoTask.Result[k].Title,
-					DueOn:  todoTask.Result[k].DueOn,
-					Status: todoTask.Result[k].Status,
+
+			var comments []model.CommentDTO
+			cChan := make(chan Task[[]model.CommentResponse], len(posts))
+			cChild := pool.New()
+
+			cChild.Go(func() {
+				for i := 0; i < len(posts); i++ {
+					commentTask := <-cChan
+					if commentTask.Err != nil {
+						aggErr = multierr.Append(aggErr, commentTask.Err)
+						return
+					}
+					for k := 0; k < len(commentTask.Result); k++ {
+						commentDTO := &model.CommentDTO{
+							ID:     commentTask.Result[k].ID,
+							PostID: commentTask.Result[k].PostID,
+							Name:   commentTask.Result[k].Name,
+							Email:  commentTask.Result[k].Email,
+							Body:   commentTask.Result[k].Body,
+						}
+						comments = append(comments, *commentDTO)
+					}
+				}
+			})
+
+			cChild.Go(func() {
+				maxGoroutines := runtime.NumCPU()
+				if len(userResponses) < maxGoroutines {
+					maxGoroutines = len(posts)
 				}
 
-				todos = append(todos, todoDTO)
+				it := iter.Iterator[model.PostDTO]{
+					MaxGoroutines: maxGoroutines,
+				}
+
+				it.ForEach(posts, func(postDTO *model.PostDTO) {
+					cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
+						return r.userClient.GetComments(postDTO.ID)
+					})
+				})
+			})
+
+			cChild.Wait()
+
+			if aggErr != nil {
+				return
 			}
-		}
-	})
 
-	parent.Go(func() {
-		iter.ForEach(userResponses, func(userResponse *model.UserResponse) {
-			uChan <- ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
-				return r.userClient.GetUser(userResponse.ID)
+			for i := 0; i < len(posts); i++ {
+				post := &posts[i]
+				for k := 0; k < len(comments); k++ {
+					if post.ID == comments[k].PostID {
+						post.Comments = append(post.Comments, comments[k])
+					}
+				}
+			}
+		})
+		child.Go(func() {
+			maxGoroutines := runtime.NumCPU()
+			if len(userResponses) < maxGoroutines {
+				maxGoroutines = len(userResponses)
+			}
+
+			it := iter.Iterator[model.UserResponse]{
+				MaxGoroutines: maxGoroutines,
+			}
+
+			it.ForEach(userResponses, func(userResponse *model.UserResponse) {
+				pChan <- ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
+					return r.userClient.GetPosts(userResponse.ID)
+				})
 			})
 		})
+		child.Wait()
 	})
-
 	parent.Go(func() {
-		iter.ForEach(userResponses, func(userResponse *model.UserResponse) {
-			pChan <- ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
-				return r.userClient.GetPosts(userResponse.ID)
+		child := pool.New().WithMaxGoroutines(2)
+		child.Go(func() {
+			for i := 0; i < len(userResponses); i++ {
+				todoTask := <-tChan
+				if todoTask.Err != nil {
+					aggErr = multierr.Append(aggErr, todoTask.Err)
+					return
+				}
+				for k := 0; k < len(todoTask.Result); k++ {
+					todoDTO := model.TodoDTO{
+						ID:     todoTask.Result[k].ID,
+						UserID: todoTask.Result[k].UserID,
+						Title:  todoTask.Result[k].Title,
+						DueOn:  todoTask.Result[k].DueOn,
+						Status: todoTask.Result[k].Status,
+					}
+
+					todos = append(todos, todoDTO)
+				}
+			}
+		})
+		child.Go(func() {
+			maxGoroutines := runtime.NumCPU()
+			if len(userResponses) < maxGoroutines {
+				maxGoroutines = len(userResponses)
+			}
+
+			it := iter.Iterator[model.UserResponse]{
+				MaxGoroutines: maxGoroutines,
+			}
+
+			it.ForEach(userResponses, func(userResponse *model.UserResponse) {
+				tChan <- ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
+					return r.userClient.GetTodos(userResponse.ID)
+				})
 			})
 		})
+		child.Wait()
 	})
-
-	parent.Go(func() {
-		iter.ForEach(userResponses, func(userResponse *model.UserResponse) {
-			tChan <- ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
-				return r.userClient.GetTodos(userResponse.ID)
-			})
-		})
-	})
-
 	parent.Wait()
 
 	if aggErr != nil {
