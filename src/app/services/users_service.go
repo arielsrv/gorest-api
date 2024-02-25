@@ -55,7 +55,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	var posts []model.PostDTO
 	var todos []model.TodoDTO
 
-	parent := pool.New()
+	parent := pool.New().WithMaxGoroutines(6)
 
 	parent.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
