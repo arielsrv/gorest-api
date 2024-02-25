@@ -125,7 +125,7 @@ tasks:
       - golangci-lint run --fix
 
   test:race:
-    deps: [ test:mock ]
+    #deps: [ test:mock ]
     desc: Race conditions check for unit test.
     cmds:
       - go test -race ./...

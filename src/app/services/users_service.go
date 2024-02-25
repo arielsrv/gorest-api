@@ -37,51 +37,6 @@ func ToTask[T any](f func() (T, error)) Task[T] {
 	}
 }
 
-func (r *UsersService) GetComments(posts []model.PostDTO) ([]model.CommentDTO, error) {
-	var comments []model.CommentDTO
-
-	cChan := make(chan Task[[]model.CommentResponse])
-
-	var aggErr error
-	consume := pool.New()
-	consume.Go(func() {
-		for commentTask := range cChan {
-			if commentTask.Err != nil {
-				aggErr = multierr.Append(aggErr, commentTask.Err)
-				continue
-			}
-
-			for i := 0; i < len(commentTask.Result); i++ {
-				commentDTO := model.CommentDTO{
-					ID:     commentTask.Result[i].ID,
-					PostID: commentTask.Result[i].PostID,
-					Name:   commentTask.Result[i].Name,
-					Email:  commentTask.Result[i].Email,
-					Body:   commentTask.Result[i].Body,
-				}
-				comments = append(comments, commentDTO)
-			}
-		}
-	})
-
-	produce := pool.New()
-	for i := 0; i < len(posts); i++ {
-		produce.Go(func() {
-			cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
-				return r.userClient.GetComments(posts[i].ID)
-			})
-		})
-	}
-
-	produce.Wait()
-
-	if aggErr != nil {
-		return nil, aggErr
-	}
-
-	return comments, nil
-}
-
 func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	var users []model.UserDTO
 
@@ -94,47 +49,48 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	pChan := make(chan Task[[]model.PostResponse])
 	tChan := make(chan Task[[]model.TodoResponse])
 
-	posts := make(map[int][]model.PostDTO)
-	todos := make(map[int][]model.TodoDTO)
+	var posts []model.PostDTO
+	var todos []model.TodoDTO
 
-	consume := pool.New()
+	produce := pool.New()
 
-	consume.Go(func() {
-		for userTask := range uChan {
+	produce.Go(func() {
+		for i := 0; i < len(userResponses); i++ {
+			userTask := <-uChan
 			if userTask.Err != nil {
 				aggErr = multierr.Append(aggErr, userTask.Err)
-				continue
+				return
 			}
 
-			userDTO := model.UserDTO{
-				Posts:  make([]model.PostDTO, 0),
-				Todos:  make([]model.TodoDTO, 0),
+			userDTO := &model.UserDTO{
 				ID:     userTask.Result.ID,
 				Name:   userTask.Result.Name,
 				Email:  userTask.Result.Email,
 				Gender: userTask.Result.Gender,
 				Status: userTask.Result.Status,
+				Posts:  make([]model.PostDTO, 0),
+				Todos:  make([]model.TodoDTO, 0),
 			}
 
-			users = append(users, userDTO)
+			users = append(users, *userDTO)
 		}
 	})
 
-	consume.Go(func() {
-		for postTask := range pChan {
+	produce.Go(func() {
+		for i := 0; i < len(userResponses); i++ {
+			postTask := <-pChan
 			if postTask.Err != nil {
 				aggErr = multierr.Append(aggErr, postTask.Err)
-				continue
+				return
 			}
 
-			for i := 0; i < len(postTask.Result); i++ {
-				userID := postTask.Result[i].UserID
-
+			for k := 0; k < len(postTask.Result); k++ {
 				postDTO := model.PostDTO{
 					Comments: make([]model.CommentDTO, 0),
-					ID:       postTask.Result[i].ID,
-					Title:    postTask.Result[i].Title,
-					Body:     postTask.Result[i].Body,
+					ID:       postTask.Result[k].ID,
+					UserID:   postTask.Result[k].UserID,
+					Title:    postTask.Result[k].Title,
+					Body:     postTask.Result[k].Body,
 				}
 
 				commentsResponse, err := r.userClient.GetComments(postDTO.ID)
@@ -143,66 +99,70 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 					continue
 				}
 
-				for k := 0; k < len(commentsResponse); k++ {
-					commentDTO := model.CommentDTO{
-						ID:     commentsResponse[k].ID,
-						PostID: commentsResponse[k].PostID,
-						Name:   commentsResponse[k].Name,
-						Email:  commentsResponse[k].Email,
-						Body:   commentsResponse[k].Body,
+				for j := 0; j < len(commentsResponse); j++ {
+					commentDTO := &model.CommentDTO{
+						ID:     commentsResponse[j].ID,
+						PostID: commentsResponse[j].PostID,
+						Name:   commentsResponse[j].Name,
+						Email:  commentsResponse[j].Email,
+						Body:   commentsResponse[j].Body,
 					}
-					postDTO.Comments = append(postDTO.Comments, commentDTO)
+					postDTO.Comments = append(postDTO.Comments, *commentDTO)
 				}
 
 				slices.SortFunc(postDTO.Comments, func(a, b model.CommentDTO) int {
 					return a.ID - b.ID
 				})
 
-				posts[userID] = append(posts[userID], postDTO)
+				posts = append(posts, postDTO)
 			}
 		}
 	})
 
-	consume.Go(func() {
-		for todoTask := range tChan {
+	produce.Go(func() {
+		for i := 0; i < len(userResponses); i++ {
+			todoTask := <-tChan
 			if todoTask.Err != nil {
 				aggErr = multierr.Append(aggErr, todoTask.Err)
-				continue
+				return
 			}
-			for i := 0; i < len(todoTask.Result); i++ {
-				userID := todoTask.Result[i].UserID
-
+			for k := 0; k < len(todoTask.Result); k++ {
 				todoDTO := model.TodoDTO{
-					ID:     todoTask.Result[i].ID,
-					Title:  todoTask.Result[i].Title,
-					DueOn:  todoTask.Result[i].DueOn,
-					Status: todoTask.Result[i].Status,
+					ID:     todoTask.Result[k].ID,
+					UserID: todoTask.Result[k].UserID,
+					Title:  todoTask.Result[k].Title,
+					DueOn:  todoTask.Result[k].DueOn,
+					Status: todoTask.Result[k].Status,
 				}
 
-				todos[userID] = append(todos[userID], todoDTO)
+				todos = append(todos, todoDTO)
 			}
 		}
 	})
 
-	produce := pool.New()
-
-	for i := 0; i < len(userResponses); i++ {
-		produce.Go(func() {
+	produce.Go(func() {
+		for i := 0; i < len(userResponses); i++ {
 			uChan <- ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
 				return r.userClient.GetUser(userResponses[i].ID)
 			})
-		})
-		produce.Go(func() {
+		}
+	})
+
+	produce.Go(func() {
+		for i := 0; i < len(userResponses); i++ {
 			pChan <- ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
 				return r.userClient.GetPosts(userResponses[i].ID)
 			})
-		})
-		produce.Go(func() {
+		}
+	})
+
+	produce.Go(func() {
+		for i := 0; i < len(userResponses); i++ {
 			tChan <- ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
 				return r.userClient.GetTodos(userResponses[i].ID)
 			})
-		})
-	}
+		}
+	})
 
 	produce.Wait()
 
@@ -210,18 +170,25 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		return nil, aggErr
 	}
 
-	slices.SortFunc(users, func(user1, user2 model.UserDTO) int {
-		return user1.ID - user2.ID
-	})
-
 	for i := 0; i < len(users); i++ {
-		if posts[users[i].ID] != nil {
-			users[i].Posts = append(users[i].Posts, posts[users[i].ID]...)
+		userDTO := &users[i]
+		for k := 0; k < len(posts); k++ {
+			postDTO := posts[k]
+			if postDTO.UserID == userDTO.ID {
+				userDTO.Posts = append(userDTO.Posts, postDTO)
+			}
 		}
-		if todos[users[i].ID] != nil {
-			users[i].Todos = append(users[i].Todos, todos[users[i].ID]...)
+		for k := 0; k < len(todos); k++ {
+			todoDTO := todos[k]
+			if todoDTO.UserID == userDTO.ID {
+				userDTO.Todos = append(userDTO.Todos, todoDTO)
+			}
 		}
 	}
+
+	slices.SortFunc(users, func(a, b model.UserDTO) int {
+		return a.ID - b.ID
+	})
 
 	return users, nil
 }
