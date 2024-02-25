@@ -3,9 +3,9 @@ package services
 import (
 	"slices"
 
-	"github.com/sourcegraph/conc/iter"
+	"github.com/alitto/pond"
 
-	"github.com/sourcegraph/conc/pool"
+	"github.com/sourcegraph/conc/iter"
 
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/clients"
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/model"
@@ -55,9 +55,9 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	var posts []model.PostDTO
 	var todos []model.TodoDTO
 
-	parent := pool.New()
+	parent := pond.New(10, 100)
 
-	parent.Go(func() {
+	parent.Submit(func() {
 		for i := 0; i < len(userResponses); i++ {
 			userTask := <-uChan
 			if userTask.Err != nil {
@@ -79,7 +79,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	parent.Go(func() {
+	parent.Submit(func() {
 		for i := 0; i < len(userResponses); i++ {
 			postTask := <-pChan
 			if postTask.Err != nil {
@@ -105,9 +105,9 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 
 		var comments []model.CommentDTO
 		cChan := make(chan Task[[]model.CommentResponse], len(posts))
-		child := pool.New()
+		child := pond.New(10, 100)
 
-		child.Go(func() {
+		child.Submit(func() {
 			for i := 0; i < len(posts); i++ {
 				commentTask := <-cChan
 				if commentTask.Err != nil {
@@ -127,7 +127,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 			}
 		})
 
-		child.Go(func() {
+		child.Submit(func() {
 			iter.ForEach(posts, func(postDTO *model.PostDTO) {
 				cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
 					return r.userClient.GetComments(postDTO.ID)
@@ -135,7 +135,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 			})
 		})
 
-		child.Wait()
+		child.StopAndWait()
 
 		if aggErr != nil {
 			return
@@ -151,7 +151,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	parent.Go(func() {
+	parent.Submit(func() {
 		for i := 0; i < len(userResponses); i++ {
 			todoTask := <-tChan
 			if todoTask.Err != nil {
@@ -172,7 +172,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	parent.Go(func() {
+	parent.Submit(func() {
 		iter.ForEach(userResponses, func(userResponse *model.UserResponse) {
 			uChan <- ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
 				return r.userClient.GetUser(userResponse.ID)
@@ -180,7 +180,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		})
 	})
 
-	parent.Go(func() {
+	parent.Submit(func() {
 		iter.ForEach(userResponses, func(userResponse *model.UserResponse) {
 			pChan <- ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
 				return r.userClient.GetPosts(userResponse.ID)
@@ -188,7 +188,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		})
 	})
 
-	parent.Go(func() {
+	parent.Submit(func() {
 		iter.ForEach(userResponses, func(userResponse *model.UserResponse) {
 			tChan <- ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
 				return r.userClient.GetTodos(userResponse.ID)
@@ -196,7 +196,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		})
 	})
 
-	parent.Wait()
+	parent.StopAndWait()
 
 	if aggErr != nil {
 		return nil, aggErr
