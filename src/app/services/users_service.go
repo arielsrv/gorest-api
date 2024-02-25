@@ -45,9 +45,9 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		return nil, aggErr
 	}
 
-	uChan := make(chan Task[*model.UserResponse])
-	pChan := make(chan Task[[]model.PostResponse])
-	tChan := make(chan Task[[]model.TodoResponse])
+	uChan := make(chan Task[*model.UserResponse], len(userResponses))
+	pChan := make(chan Task[[]model.PostResponse], len(userResponses))
+	tChan := make(chan Task[[]model.TodoResponse], len(userResponses))
 
 	var posts []model.PostDTO
 	var todos []model.TodoDTO
