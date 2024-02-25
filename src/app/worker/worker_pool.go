@@ -1,112 +1,49 @@
-package worker2
+package worker
 
 import (
-	"github.com/alitto/pond"
-	"github.com/prometheus/client_golang/prometheus"
-	log "gitlab.com/iskaypetcom/digital/sre/tools/dev/go-logger"
+	"runtime"
+
+	"github.com/sourcegraph/conc/iter"
+	"github.com/sourcegraph/conc/pool"
 )
 
 type Pool struct {
-	*pond.WorkerPool
+	*pool.Pool
 }
 
-func New(maxWorkers, maxCapacity int, options ...pond.Option) *Pool {
-	pool := pond.New(maxWorkers, maxCapacity, options...)
-
-	// Worker pool metrics
-	err := prometheus.Register(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name: "pool_workers_running",
-			Help: "Number of running worker goroutines",
-		},
-		func() float64 {
-			return float64(pool.RunningWorkers())
-		}))
-
-	if err != nil {
-		log.Error(err)
-	}
-
-	err = prometheus.Register(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name: "pool_workers_idle",
-			Help: "Number of idle worker goroutines",
-		},
-		func() float64 {
-			return float64(pool.IdleWorkers())
-		}))
-
-	if err != nil {
-		log.Error(err)
-	}
-
-	// Task metrics
-	err = prometheus.Register(prometheus.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "pool_tasks_submitted_total",
-			Help: "Number of tasks submitted",
-		},
-		func() float64 {
-			return float64(pool.SubmittedTasks())
-		}))
-
-	if err != nil {
-		log.Error(err)
-	}
-
-	err = prometheus.Register(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name: "pool_tasks_waiting",
-			Help: "Number of tasks waiting in the queue",
-		},
-		func() float64 {
-			return float64(pool.WaitingTasks())
-		}))
-
-	if err != nil {
-		log.Error(err)
-	}
-
-	err = prometheus.Register(prometheus.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "pool_tasks_successful_total",
-			Help: "Number of tasks that completed successfully",
-		},
-		func() float64 {
-			return float64(pool.SuccessfulTasks())
-		}))
-
-	if err != nil {
-		log.Error(err)
-	}
-
-	err = prometheus.Register(prometheus.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "pool_tasks_failed_total",
-			Help: "Number of tasks that completed with panic",
-		},
-		func() float64 {
-			return float64(pool.FailedTasks())
-		}))
-
-	if err != nil {
-		log.Error(err)
-	}
-
-	err = prometheus.Register(prometheus.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "pool_tasks_completed_total",
-			Help: "Number of tasks that completed either successfully or with panic",
-		},
-		func() float64 {
-			return float64(pool.CompletedTasks())
-		}))
-
-	if err != nil {
-		log.Error(err)
-	}
-
+func New() *Pool {
 	return &Pool{
-		WorkerPool: pool,
+		pool.New(),
 	}
+}
+
+func (r *Pool) WithMaxGoroutines(maxGoroutines int) *Pool {
+	r.Pool.WithMaxGoroutines(maxGoroutines)
+	return r
+}
+
+type Task[T any] struct {
+	Result T
+	Err    error
+}
+
+func ToTask[T any](f func() (T, error)) Task[T] {
+	result, err := f()
+
+	return Task[T]{
+		Result: result,
+		Err:    err,
+	}
+}
+
+func ForEach[T any](input []T, f func(*T), maxGoroutines ...int) {
+	it := iter.Iterator[T]{
+		MaxGoroutines: runtime.NumCPU() - 1,
+	}
+
+	if len(maxGoroutines) > 0 && maxGoroutines[0] > 0 {
+		it.MaxGoroutines = maxGoroutines[0]
+	}
+
+	it.ForEach(input, f)
 }

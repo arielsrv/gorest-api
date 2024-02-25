@@ -4,9 +4,7 @@ import (
 	"runtime"
 	"slices"
 
-	"github.com/sourcegraph/conc/pool"
-
-	"github.com/sourcegraph/conc/iter"
+	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/worker"
 
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/clients"
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/model"
@@ -27,20 +25,6 @@ func NewUserService(userClient clients.IUserClient) *UsersService {
 	}
 }
 
-type Task[T any] struct {
-	Result T
-	Err    error
-}
-
-func ToTask[T any](f func() (T, error)) Task[T] {
-	result, err := f()
-
-	return Task[T]{
-		Result: result,
-		Err:    err,
-	}
-}
-
 func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	userResponses, aggErr := r.userClient.GetUsers()
 	if aggErr != nil {
@@ -49,10 +33,10 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 
 	var users []model.UserDTO
 
-	parent := pool.New().WithMaxGoroutines(3)
+	parent := worker.New().WithMaxGoroutines(3)
 	parent.Go(func() {
-		child := pool.New().WithMaxGoroutines(2)
-		uChan := make(chan Task[*model.UserResponse], len(userResponses))
+		child := worker.New().WithMaxGoroutines(2)
+		uChan := make(chan worker.Task[*model.UserResponse], len(userResponses))
 		child.Go(func() {
 			for i := 0; i < len(userResponses); i++ {
 				userTask := <-uChan
@@ -74,15 +58,11 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		})
 
 		child.Go(func() {
-			it := iter.Iterator[model.UserResponse]{
-				MaxGoroutines: runtime.NumCPU() - 1,
-			}
-
-			it.ForEach(userResponses, func(userResponse *model.UserResponse) {
-				uChan <- ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
+			worker.ForEach(userResponses, func(userResponse *model.UserResponse) {
+				uChan <- worker.ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
 					return r.userClient.GetUser(userResponse.ID)
 				})
-			})
+			}, runtime.NumCPU()-1)
 		})
 
 		child.Wait()
@@ -90,8 +70,8 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 
 	var posts []model.PostDTO
 	parent.Go(func() {
-		child := pool.New().WithMaxGoroutines(2)
-		pChan := make(chan Task[[]model.PostResponse], len(userResponses))
+		child := worker.New().WithMaxGoroutines(2)
+		pChan := make(chan worker.Task[[]model.PostResponse], len(userResponses))
 		child.Go(func() {
 			for i := 0; i < len(userResponses); i++ {
 				postTask := <-pChan
@@ -117,8 +97,8 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 			}
 
 			var comments []model.CommentDTO
-			cChan := make(chan Task[[]model.CommentResponse], len(posts))
-			cChild := pool.New()
+			cChan := make(chan worker.Task[[]model.CommentResponse], len(posts))
+			cChild := worker.New()
 			cChild.Go(func() {
 				for i := 0; i < len(posts); i++ {
 					commentTask := <-cChan
@@ -140,15 +120,11 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 			})
 
 			cChild.Go(func() {
-				it := iter.Iterator[model.PostDTO]{
-					MaxGoroutines: runtime.NumCPU() - 1,
-				}
-
-				it.ForEach(posts, func(postDTO *model.PostDTO) {
-					cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
+				worker.ForEach(posts, func(postDTO *model.PostDTO) {
+					cChan <- worker.ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
 						return r.userClient.GetComments(postDTO.ID)
 					})
-				})
+				}, runtime.NumCPU()-1)
 			})
 
 			cChild.Wait()
@@ -172,15 +148,11 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		})
 
 		child.Go(func() {
-			it := iter.Iterator[model.UserResponse]{
-				MaxGoroutines: runtime.NumCPU() - 1,
-			}
-
-			it.ForEach(userResponses, func(userResponse *model.UserResponse) {
-				pChan <- ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
+			worker.ForEach(userResponses, func(userResponse *model.UserResponse) {
+				pChan <- worker.ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
 					return r.userClient.GetPosts(userResponse.ID)
 				})
-			})
+			}, runtime.NumCPU()-1)
 		})
 
 		child.Wait()
@@ -188,8 +160,8 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 
 	var todos []model.TodoDTO
 	parent.Go(func() {
-		tChan := make(chan Task[[]model.TodoResponse], len(userResponses))
-		child := pool.New().WithMaxGoroutines(2)
+		tChan := make(chan worker.Task[[]model.TodoResponse], len(userResponses))
+		child := worker.New().WithMaxGoroutines(2)
 		child.Go(func() {
 			for i := 0; i < len(userResponses); i++ {
 				todoTask := <-tChan
@@ -212,15 +184,11 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		})
 
 		child.Go(func() {
-			it := iter.Iterator[model.UserResponse]{
-				MaxGoroutines: runtime.NumCPU() - 1,
-			}
-
-			it.ForEach(userResponses, func(userResponse *model.UserResponse) {
-				tChan <- ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
+			worker.ForEach(userResponses, func(userResponse *model.UserResponse) {
+				tChan <- worker.ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
 					return r.userClient.GetTodos(userResponse.ID)
 				})
-			})
+			}, runtime.NumCPU()-1)
 		})
 
 		child.Wait()
