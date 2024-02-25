@@ -108,19 +108,19 @@ func (r *UsersService) getPosts(userResponses []model.UserResponse) ([]model.Pos
 	pool := worker.New().WithMaxGoroutines(2)
 	pool.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
-			postTask := <-rChan
-			if postTask.Err != nil {
-				aggErr = multierr.Append(aggErr, postTask.Err)
+			task := <-rChan
+			if task.Err != nil {
+				aggErr = multierr.Append(aggErr, task.Err)
 				return
 			}
 
-			for k := 0; k < len(postTask.Result); k++ {
+			for k := 0; k < len(task.Result); k++ {
 				postDTO := model.PostDTO{
 					Comments: make([]model.CommentDTO, 0),
-					ID:       postTask.Result[k].ID,
-					UserID:   postTask.Result[k].UserID,
-					Title:    postTask.Result[k].Title,
-					Body:     postTask.Result[k].Body,
+					ID:       task.Result[k].ID,
+					UserID:   task.Result[k].UserID,
+					Title:    task.Result[k].Title,
+					Body:     task.Result[k].Body,
 				}
 				posts = append(posts, postDTO)
 			}
@@ -206,18 +206,18 @@ func (r *UsersService) getTodos(userResponses []model.UserResponse) ([]model.Tod
 	pool := worker.New().WithMaxGoroutines(2)
 	pool.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
-			todoTask := <-rChan
-			if todoTask.Err != nil {
-				aggErr = multierr.Append(aggErr, todoTask.Err)
+			task := <-rChan
+			if task.Err != nil {
+				aggErr = multierr.Append(aggErr, task.Err)
 				return
 			}
-			for k := 0; k < len(todoTask.Result); k++ {
+			for k := 0; k < len(task.Result); k++ {
 				todoDTO := model.TodoDTO{
-					ID:     todoTask.Result[k].ID,
-					UserID: todoTask.Result[k].UserID,
-					Title:  todoTask.Result[k].Title,
-					DueOn:  todoTask.Result[k].DueOn,
-					Status: todoTask.Result[k].Status,
+					ID:     task.Result[k].ID,
+					UserID: task.Result[k].UserID,
+					Title:  task.Result[k].Title,
+					DueOn:  task.Result[k].DueOn,
+					Status: task.Result[k].Status,
 				}
 
 				todos = append(todos, todoDTO)
@@ -249,18 +249,18 @@ func (r *UsersService) getUsers(userResponses []model.UserResponse) ([]model.Use
 
 	pool.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
-			userTask := <-rChan
-			if userTask.Err != nil {
-				aggErr = multierr.Append(aggErr, userTask.Err)
+			task := <-rChan
+			if task.Err != nil {
+				aggErr = multierr.Append(aggErr, task.Err)
 				continue
 			}
 
 			userDTO := &model.UserDTO{
-				ID:     userTask.Result.ID,
-				Name:   userTask.Result.Name,
-				Email:  userTask.Result.Email,
-				Gender: userTask.Result.Gender,
-				Status: userTask.Result.Status,
+				ID:     task.Result.ID,
+				Name:   task.Result.Name,
+				Email:  task.Result.Email,
+				Gender: task.Result.Gender,
+				Status: task.Result.Status,
 			}
 
 			users = append(users, *userDTO)
