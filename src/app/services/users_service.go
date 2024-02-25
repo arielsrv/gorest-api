@@ -1,9 +1,10 @@
 package services
 
 import (
+	"github.com/alitto/pond"
+	"runtime"
 	"slices"
 
-	"github.com/sourcegraph/conc/pool"
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/clients"
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/model"
 	"go.uber.org/multierr"
@@ -52,9 +53,9 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	var posts []model.PostDTO
 	var todos []model.TodoDTO
 
-	produce := pool.New()
+	produce := pond.New(runtime.NumCPU()-1, 1000)
 
-	produce.Go(func() {
+	produce.Submit(func() {
 		for i := 0; i < len(userResponses); i++ {
 			userTask := <-uChan
 			if userTask.Err != nil {
@@ -76,7 +77,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	produce.Go(func() {
+	produce.Submit(func() {
 		for i := 0; i < len(userResponses); i++ {
 			postTask := <-pChan
 			if postTask.Err != nil {
@@ -119,7 +120,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	produce.Go(func() {
+	produce.Submit(func() {
 		for i := 0; i < len(userResponses); i++ {
 			todoTask := <-tChan
 			if todoTask.Err != nil {
@@ -140,7 +141,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	produce.Go(func() {
+	produce.Submit(func() {
 		for i := 0; i < len(userResponses); i++ {
 			uChan <- ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
 				return r.userClient.GetUser(userResponses[i].ID)
@@ -148,7 +149,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	produce.Go(func() {
+	produce.Submit(func() {
 		for i := 0; i < len(userResponses); i++ {
 			pChan <- ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
 				return r.userClient.GetPosts(userResponses[i].ID)
@@ -156,7 +157,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	produce.Go(func() {
+	produce.Submit(func() {
 		for i := 0; i < len(userResponses); i++ {
 			tChan <- ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
 				return r.userClient.GetTodos(userResponses[i].ID)
@@ -164,7 +165,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		}
 	})
 
-	produce.Wait()
+	produce.StopAndWait()
 
 	if aggErr != nil {
 		return nil, aggErr
