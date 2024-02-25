@@ -42,24 +42,17 @@ func ToTask[T any](f func() (T, error)) Task[T] {
 }
 
 func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
-	var users []model.UserDTO
-
 	userResponses, aggErr := r.userClient.GetUsers()
 	if aggErr != nil {
 		return nil, aggErr
 	}
 
-	uChan := make(chan Task[*model.UserResponse], len(userResponses))
-	pChan := make(chan Task[[]model.PostResponse], len(userResponses))
-	tChan := make(chan Task[[]model.TodoResponse], len(userResponses))
-
-	var posts []model.PostDTO
-	var todos []model.TodoDTO
+	var users []model.UserDTO
 
 	parent := pool.New().WithMaxGoroutines(3)
 	parent.Go(func() {
 		child := pool.New().WithMaxGoroutines(2)
-
+		uChan := make(chan Task[*model.UserResponse], len(userResponses))
 		child.Go(func() {
 			for i := 0; i < len(userResponses); i++ {
 				userTask := <-uChan
@@ -74,8 +67,6 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 					Email:  userTask.Result.Email,
 					Gender: userTask.Result.Gender,
 					Status: userTask.Result.Status,
-					Posts:  make([]model.PostDTO, 0),
-					Todos:  make([]model.TodoDTO, 0),
 				}
 
 				users = append(users, *userDTO)
@@ -101,8 +92,11 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 
 		child.Wait()
 	})
+
+	var posts []model.PostDTO
 	parent.Go(func() {
 		child := pool.New().WithMaxGoroutines(2)
+		pChan := make(chan Task[[]model.PostResponse], len(userResponses))
 		child.Go(func() {
 			for i := 0; i < len(userResponses); i++ {
 				postTask := <-pChan
@@ -130,7 +124,6 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 			var comments []model.CommentDTO
 			cChan := make(chan Task[[]model.CommentResponse], len(posts))
 			cChild := pool.New()
-
 			cChild.Go(func() {
 				for i := 0; i < len(posts); i++ {
 					commentTask := <-cChan
@@ -181,8 +174,13 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 						post.Comments = append(post.Comments, comments[k])
 					}
 				}
+
+				slices.SortFunc(post.Comments, func(a, b model.CommentDTO) int {
+					return a.ID - b.ID
+				})
 			}
 		})
+
 		child.Go(func() {
 			maxGoroutines := runtime.NumCPU()
 			if len(userResponses) < maxGoroutines {
@@ -199,9 +197,13 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 				})
 			})
 		})
+
 		child.Wait()
 	})
+
+	var todos []model.TodoDTO
 	parent.Go(func() {
+		tChan := make(chan Task[[]model.TodoResponse], len(userResponses))
 		child := pool.New().WithMaxGoroutines(2)
 		child.Go(func() {
 			for i := 0; i < len(userResponses); i++ {
@@ -223,6 +225,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 				}
 			}
 		})
+
 		child.Go(func() {
 			maxGoroutines := runtime.NumCPU()
 			if len(userResponses) < maxGoroutines {
@@ -239,8 +242,10 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 				})
 			})
 		})
+
 		child.Wait()
 	})
+
 	parent.Wait()
 
 	if aggErr != nil {
@@ -249,12 +254,16 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 
 	for i := 0; i < len(users); i++ {
 		userDTO := &users[i]
+
+		userDTO.Posts = make([]model.PostDTO, 0)
 		for k := 0; k < len(posts); k++ {
 			postDTO := posts[k]
 			if postDTO.UserID == userDTO.ID {
 				userDTO.Posts = append(userDTO.Posts, postDTO)
 			}
 		}
+
+		userDTO.Todos = make([]model.TodoDTO, 0)
 		for k := 0; k < len(todos); k++ {
 			todoDTO := todos[k]
 			if todoDTO.UserID == userDTO.ID {
