@@ -53,7 +53,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	var posts []model.PostDTO
 	var todos []model.TodoDTO
 
-	produce := pond.New(runtime.NumCPU()-1, 1000)
+	produce := pond.New(runtime.NumCPU()-1, len(userResponses)*3)
 
 	produce.Submit(func() {
 		for i := 0; i < len(userResponses); i++ {
