@@ -74,13 +74,8 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		})
 
 		child.Go(func() {
-			maxGoroutines := runtime.NumCPU()
-			if len(userResponses) < maxGoroutines {
-				maxGoroutines = len(userResponses)
-			}
-
 			it := iter.Iterator[model.UserResponse]{
-				MaxGoroutines: maxGoroutines,
+				MaxGoroutines: runtime.NumCPU() - 1,
 			}
 
 			it.ForEach(userResponses, func(userResponse *model.UserResponse) {
@@ -145,13 +140,8 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 			})
 
 			cChild.Go(func() {
-				maxGoroutines := runtime.NumCPU()
-				if len(userResponses) < maxGoroutines {
-					maxGoroutines = len(posts)
-				}
-
 				it := iter.Iterator[model.PostDTO]{
-					MaxGoroutines: maxGoroutines,
+					MaxGoroutines: runtime.NumCPU() - 1,
 				}
 
 				it.ForEach(posts, func(postDTO *model.PostDTO) {
@@ -182,13 +172,8 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		})
 
 		child.Go(func() {
-			maxGoroutines := runtime.NumCPU()
-			if len(userResponses) < maxGoroutines {
-				maxGoroutines = len(userResponses)
-			}
-
 			it := iter.Iterator[model.UserResponse]{
-				MaxGoroutines: maxGoroutines,
+				MaxGoroutines: runtime.NumCPU() - 1,
 			}
 
 			it.ForEach(userResponses, func(userResponse *model.UserResponse) {
@@ -227,13 +212,8 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		})
 
 		child.Go(func() {
-			maxGoroutines := runtime.NumCPU()
-			if len(userResponses) < maxGoroutines {
-				maxGoroutines = len(userResponses)
-			}
-
 			it := iter.Iterator[model.UserResponse]{
-				MaxGoroutines: maxGoroutines,
+				MaxGoroutines: runtime.NumCPU() - 1,
 			}
 
 			it.ForEach(userResponses, func(userResponse *model.UserResponse) {
