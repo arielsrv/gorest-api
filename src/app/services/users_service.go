@@ -3,6 +3,8 @@ package services
 import (
 	"slices"
 
+	"github.com/sourcegraph/conc/iter"
+
 	"github.com/sourcegraph/conc/pool"
 
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/clients"
@@ -126,11 +128,11 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		})
 
 		child.Go(func() {
-			for i := 0; i < len(posts); i++ {
+			iter.ForEach(posts, func(postDTO *model.PostDTO) {
 				cChan <- ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
-					return r.userClient.GetComments(posts[i].ID)
+					return r.userClient.GetComments(postDTO.ID)
 				})
-			}
+			})
 		})
 
 		child.Wait()
@@ -171,27 +173,27 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	})
 
 	parent.Go(func() {
-		for i := 0; i < len(userResponses); i++ {
+		iter.ForEach(userResponses, func(userResponse *model.UserResponse) {
 			uChan <- ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
-				return r.userClient.GetUser(userResponses[i].ID)
+				return r.userClient.GetUser(userResponse.ID)
 			})
-		}
+		})
 	})
 
 	parent.Go(func() {
-		for i := 0; i < len(userResponses); i++ {
+		iter.ForEach(userResponses, func(userResponse *model.UserResponse) {
 			pChan <- ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
-				return r.userClient.GetPosts(userResponses[i].ID)
+				return r.userClient.GetPosts(userResponse.ID)
 			})
-		}
+		})
 	})
 
 	parent.Go(func() {
-		for i := 0; i < len(userResponses); i++ {
+		iter.ForEach(userResponses, func(userResponse *model.UserResponse) {
 			tChan <- ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
-				return r.userClient.GetTodos(userResponses[i].ID)
+				return r.userClient.GetTodos(userResponse.ID)
 			})
-		}
+		})
 	})
 
 	parent.Wait()
