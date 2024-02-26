@@ -59,7 +59,7 @@ func TestService_GetUsers_Err(t *testing.T) {
 	assert.Nil(t, actual)
 }
 
-func TestService_GetUsers_User_Err(t *testing.T) {
+func TestService_GetUsers_Err_UserPool(t *testing.T) {
 	userClient := clients.NewMockIUserClient(t)
 
 	userClient.EXPECT().GetUsers().Return([]model.UserResponse{{ID: 1}, {ID: 2}}, nil)
