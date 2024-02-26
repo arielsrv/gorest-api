@@ -1,6 +1,7 @@
 package services
 
 import (
+	"cmp"
 	"runtime"
 	"slices"
 
@@ -90,7 +91,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 	}
 
 	slices.SortFunc(users, func(a, b model.UserDTO) int {
-		return a.ID - b.ID
+		return cmp.Compare(a.ID, b.ID)
 	})
 
 	return users, nil
@@ -154,7 +155,7 @@ func (r *UsersService) getPosts(userResponses []model.UserResponse) ([]model.Pos
 			}
 
 			slices.SortFunc(post.Comments, func(a, b model.CommentDTO) int {
-				return a.ID - b.ID
+				return cmp.Compare(a.ID, b.ID)
 			})
 		}
 	})
