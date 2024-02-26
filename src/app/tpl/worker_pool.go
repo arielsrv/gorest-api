@@ -1,4 +1,4 @@
-package gpars
+package tpl
 
 import (
 	"runtime"
@@ -13,13 +13,17 @@ type Pool struct {
 
 func New() *Pool {
 	return &Pool{
-		pool.New(),
+		Pool: pool.New(),
 	}
 }
 
 func (r *Pool) WithMaxGoroutines(maxGoroutines int) *Pool {
 	r.Pool.WithMaxGoroutines(maxGoroutines)
 	return r
+}
+
+func (r *Pool) Submit(task func()) {
+	r.Pool.Go(task)
 }
 
 type Task[T any] struct {
