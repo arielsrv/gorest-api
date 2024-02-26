@@ -105,13 +105,15 @@ func (r *UsersService) getPosts(userResponses []model.UserResponse) ([]model.Pos
 
 	rChan := make(chan worker.Task[[]model.PostResponse], len(userResponses))
 
-	pool := worker.New().WithMaxGoroutines(2)
+	pool := worker.New().
+		WithMaxGoroutines(2)
+
 	pool.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
 			task := <-rChan
 			if task.Err != nil {
 				aggErr = multierr.Append(aggErr, task.Err)
-				return
+				continue
 			}
 
 			for k := 0; k < len(task.Result); k++ {
@@ -126,40 +128,17 @@ func (r *UsersService) getPosts(userResponses []model.UserResponse) ([]model.Pos
 			}
 		}
 
-		if aggErr != nil {
-			return
-		}
-
 		var comments []model.CommentDTO
-		cChan := make(chan worker.Task[[]model.CommentResponse], len(posts))
-		child := worker.New()
 
+		child := worker.New().WithMaxGoroutines(1)
 		child.Go(func() {
-			for i := 0; i < len(posts); i++ {
-				commentTask := <-cChan
-				if commentTask.Err != nil {
-					aggErr = multierr.Append(aggErr, commentTask.Err)
-					return
-				}
-				for k := 0; k < len(commentTask.Result); k++ {
-					commentDTO := &model.CommentDTO{
-						ID:     commentTask.Result[k].ID,
-						PostID: commentTask.Result[k].PostID,
-						Name:   commentTask.Result[k].Name,
-						Email:  commentTask.Result[k].Email,
-						Body:   commentTask.Result[k].Body,
-					}
-					comments = append(comments, *commentDTO)
-				}
+			commentsDTO, err := r.getComments(posts)
+			if err != nil {
+				aggErr = multierr.Append(aggErr, err)
+				return
 			}
-		})
 
-		child.Go(func() {
-			worker.ForEach(posts, func(postDTO *model.PostDTO) {
-				cChan <- worker.ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
-					return r.userClient.GetComments(postDTO.ID)
-				})
-			}, runtime.NumCPU()-1)
+			comments = append(comments, commentsDTO...)
 		})
 
 		child.Wait()
@@ -278,4 +257,46 @@ func (r *UsersService) getUsers(userResponses []model.UserResponse) ([]model.Use
 	pool.Wait()
 
 	return users, aggErr
+}
+
+func (r *UsersService) getComments(posts []model.PostDTO) ([]model.CommentDTO, error) {
+	var (
+		comments []model.CommentDTO
+		aggErr   error
+	)
+
+	rChan := make(chan worker.Task[[]model.CommentResponse], len(posts))
+
+	pool := worker.New()
+	pool.Go(func() {
+		for i := 0; i < len(posts); i++ {
+			commentTask := <-rChan
+			if commentTask.Err != nil {
+				aggErr = multierr.Append(aggErr, commentTask.Err)
+				return
+			}
+			for k := 0; k < len(commentTask.Result); k++ {
+				commentDTO := &model.CommentDTO{
+					ID:     commentTask.Result[k].ID,
+					PostID: commentTask.Result[k].PostID,
+					Name:   commentTask.Result[k].Name,
+					Email:  commentTask.Result[k].Email,
+					Body:   commentTask.Result[k].Body,
+				}
+				comments = append(comments, *commentDTO)
+			}
+		}
+	})
+
+	pool.Go(func() {
+		worker.ForEach(posts, func(postDTO *model.PostDTO) {
+			rChan <- worker.ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
+				return r.userClient.GetComments(postDTO.ID)
+			})
+		}, runtime.NumCPU()-1)
+	})
+
+	pool.Wait()
+
+	return comments, aggErr
 }
