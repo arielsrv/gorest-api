@@ -3,6 +3,9 @@ package clients
 import (
 	"fmt"
 	"net/http"
+	"strconv"
+
+	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/model/paging"
 
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/model"
 
@@ -10,7 +13,7 @@ import (
 )
 
 type IUserClient interface {
-	GetUsers() ([]model.UserResponse, error)
+	GetUsers(page int, perPage int) (*paging.PagedResultResponse[model.UserResponse], error)
 	GetUser(userID int) (*model.UserResponse, error)
 	GetPosts(userID int) ([]model.PostResponse, error)
 	GetTodos(userID int) ([]model.TodoResponse, error)
@@ -27,8 +30,18 @@ func NewUserClient(rb rest.IRequestBuilder) *UserClient {
 	}
 }
 
-func (c *UserClient) GetUsers() ([]model.UserResponse, error) {
-	response := c.rb.Get("/users")
+func (c *UserClient) GetUsers(page int, perPage int) (*paging.PagedResultResponse[model.UserResponse], error) {
+	apiURL := "/users"
+
+	if page > 0 {
+		apiURL += "?page=" + strconv.Itoa(page)
+	}
+
+	if perPage > 0 {
+		apiURL += "&per_page=" + strconv.Itoa(perPage)
+	}
+
+	response := c.rb.Get(apiURL)
 	if response.Err != nil {
 		return nil, response.Err
 	}
@@ -42,7 +55,35 @@ func (c *UserClient) GetUsers() ([]model.UserResponse, error) {
 		return nil, err
 	}
 
-	return userResponses, nil
+	limit, err := strconv.Atoi(response.Header.Get("X-Pagination-Limit"))
+	if err != nil {
+		return nil, err
+	}
+
+	pageNumber, err := strconv.Atoi(response.Header.Get("X-Pagination-Page"))
+	if err != nil {
+		return nil, err
+	}
+
+	pages, err := strconv.Atoi(response.Header.Get("X-Pagination-Pages"))
+	if err != nil {
+		return nil, err
+	}
+
+	total, err := strconv.Atoi(response.Header.Get("X-Pagination-Total"))
+	if err != nil {
+		return nil, err
+	}
+
+	pagedResult := &paging.PagedResultResponse[model.UserResponse]{
+		Limit:   limit,
+		Page:    pageNumber,
+		Pages:   pages,
+		Total:   total,
+		Results: userResponses,
+	}
+
+	return pagedResult, nil
 }
 
 func (c *UserClient) GetUser(userID int) (*model.UserResponse, error) {

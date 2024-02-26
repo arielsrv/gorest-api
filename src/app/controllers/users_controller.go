@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"strconv"
+
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/services"
 	"gitlab.com/iskaypetcom/digital/sre/tools/dev/backend-api-sdk/v2/core/routing"
 )
@@ -20,7 +22,19 @@ func NewUsersController(usersService services.IUsersService) *UsersController {
 }
 
 func (r UsersController) GetUsers(ctx *routing.HTTPContext) error {
-	result, err := r.usersService.GetUsers()
+	pageValue := ctx.Query("page", "1")
+	page, err := strconv.Atoi(pageValue)
+	if err != nil {
+		return err
+	}
+
+	perPageValue := ctx.Query("per_page", "10")
+	perPage, err := strconv.Atoi(perPageValue)
+	if err != nil {
+		return err
+	}
+
+	result, err := r.usersService.GetUsers(page, perPage)
 	if err != nil {
 		return err
 	}

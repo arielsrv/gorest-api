@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"slices"
 
+	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/model/paging"
+
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/tpl"
 
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/clients"
@@ -13,7 +15,7 @@ import (
 )
 
 type IUsersService interface {
-	GetUsers() ([]model.UserDTO, error)
+	GetUsers(page int, perPage int) (*paging.PagedResultDTO[model.UserDTO], error)
 }
 
 type UsersService struct {
@@ -26,8 +28,8 @@ func NewUserService(userClient clients.IUserClient) *UsersService {
 	}
 }
 
-func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
-	userResponses, aggErr := r.userClient.GetUsers()
+func (r *UsersService) GetUsers(page int, perPage int) (*paging.PagedResultDTO[model.UserDTO], error) {
+	pagedResult, aggErr := r.userClient.GetUsers(page, perPage)
 	if aggErr != nil {
 		return nil, aggErr
 	}
@@ -36,7 +38,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 
 	var users []model.UserDTO
 	pool.Submit(func() {
-		usersDTO, err := r.getUsers(userResponses)
+		usersDTO, err := r.getUsers(pagedResult.Results)
 		if err != nil {
 			aggErr = multierr.Append(aggErr, err)
 			return
@@ -46,7 +48,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 
 	var posts []model.PostDTO
 	pool.Submit(func() {
-		postsDTO, err := r.getPosts(userResponses)
+		postsDTO, err := r.getPosts(pagedResult.Results)
 		if err != nil {
 			aggErr = multierr.Append(aggErr, err)
 			return
@@ -56,7 +58,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 
 	var todos []model.TodoDTO
 	pool.Submit(func() {
-		todosDTO, err := r.getTodos(userResponses)
+		todosDTO, err := r.getTodos(pagedResult.Results)
 		if err != nil {
 			aggErr = multierr.Append(aggErr, err)
 			return
@@ -94,7 +96,13 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		return cmp.Compare(a.ID, b.ID)
 	})
 
-	return users, nil
+	return &paging.PagedResultDTO[model.UserDTO]{
+		Limit:   pagedResult.Limit,
+		Page:    pagedResult.Page,
+		Pages:   pagedResult.Pages,
+		Total:   pagedResult.Total,
+		Results: users,
+	}, nil
 }
 
 func (r *UsersService) getPosts(userResponses []model.UserResponse) ([]model.PostDTO, error) {
