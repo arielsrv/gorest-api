@@ -4,7 +4,7 @@ import (
 	"runtime"
 	"slices"
 
-	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/worker"
+	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/gpars"
 
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/clients"
 	"gitlab.com/iskaypetcom/digital/oms/api-core/gorest-api/src/app/model"
@@ -31,8 +31,7 @@ func (r *UsersService) GetUsers() ([]model.UserDTO, error) {
 		return nil, aggErr
 	}
 
-	pool := worker.New().
-		WithMaxGoroutines(3)
+	pool := gpars.New().WithMaxGoroutines(3)
 
 	var users []model.UserDTO
 	pool.Go(func() {
@@ -103,10 +102,9 @@ func (r *UsersService) getPosts(userResponses []model.UserResponse) ([]model.Pos
 		aggErr error
 	)
 
-	rChan := make(chan worker.Task[[]model.PostResponse], len(userResponses))
+	rChan := make(chan gpars.Task[[]model.PostResponse], len(userResponses))
 
-	pool := worker.New().
-		WithMaxGoroutines(2)
+	pool := gpars.New().WithMaxGoroutines(2)
 
 	pool.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
@@ -130,7 +128,7 @@ func (r *UsersService) getPosts(userResponses []model.UserResponse) ([]model.Pos
 
 		var comments []model.CommentDTO
 
-		child := worker.New().WithMaxGoroutines(1)
+		child := gpars.New().WithMaxGoroutines(1)
 		child.Go(func() {
 			commentsDTO, err := r.getComments(posts)
 			if err != nil {
@@ -162,14 +160,15 @@ func (r *UsersService) getPosts(userResponses []model.UserResponse) ([]model.Pos
 	})
 
 	pool.Go(func() {
-		worker.ForEach(userResponses, func(userResponse *model.UserResponse) {
-			rChan <- worker.ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
+		gpars.ForEach(userResponses, func(userResponse *model.UserResponse) {
+			rChan <- gpars.ToTask[[]model.PostResponse](func() ([]model.PostResponse, error) {
 				return r.userClient.GetPosts(userResponse.ID)
 			})
 		}, runtime.NumCPU()-1)
 	})
 
 	pool.Wait()
+	close(rChan)
 
 	return posts, aggErr
 }
@@ -180,9 +179,9 @@ func (r *UsersService) getTodos(userResponses []model.UserResponse) ([]model.Tod
 		aggErr error
 	)
 
-	rChan := make(chan worker.Task[[]model.TodoResponse], len(userResponses))
+	rChan := make(chan gpars.Task[[]model.TodoResponse], len(userResponses))
 
-	pool := worker.New().WithMaxGoroutines(2)
+	pool := gpars.New().WithMaxGoroutines(2)
 	pool.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
 			task := <-rChan
@@ -205,14 +204,15 @@ func (r *UsersService) getTodos(userResponses []model.UserResponse) ([]model.Tod
 	})
 
 	pool.Go(func() {
-		worker.ForEach(userResponses, func(userResponse *model.UserResponse) {
-			rChan <- worker.ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
+		gpars.ForEach(userResponses, func(userResponse *model.UserResponse) {
+			rChan <- gpars.ToTask[[]model.TodoResponse](func() ([]model.TodoResponse, error) {
 				return r.userClient.GetTodos(userResponse.ID)
 			})
 		}, runtime.NumCPU()-1)
 	})
 
 	pool.Wait()
+	close(rChan)
 
 	return todos, aggErr
 }
@@ -223,8 +223,8 @@ func (r *UsersService) getUsers(userResponses []model.UserResponse) ([]model.Use
 		aggErr error
 	)
 
-	rChan := make(chan worker.Task[*model.UserResponse], len(userResponses))
-	pool := worker.New().WithMaxGoroutines(2)
+	rChan := make(chan gpars.Task[*model.UserResponse], len(userResponses))
+	pool := gpars.New().WithMaxGoroutines(2)
 
 	pool.Go(func() {
 		for i := 0; i < len(userResponses); i++ {
@@ -247,14 +247,15 @@ func (r *UsersService) getUsers(userResponses []model.UserResponse) ([]model.Use
 	})
 
 	pool.Go(func() {
-		worker.ForEach(userResponses, func(userResponse *model.UserResponse) {
-			rChan <- worker.ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
+		gpars.ForEach(userResponses, func(userResponse *model.UserResponse) {
+			rChan <- gpars.ToTask[*model.UserResponse](func() (*model.UserResponse, error) {
 				return r.userClient.GetUser(userResponse.ID)
 			})
 		}, runtime.NumCPU()-1)
 	})
 
 	pool.Wait()
+	close(rChan)
 
 	return users, aggErr
 }
@@ -265,9 +266,9 @@ func (r *UsersService) getComments(posts []model.PostDTO) ([]model.CommentDTO, e
 		aggErr   error
 	)
 
-	rChan := make(chan worker.Task[[]model.CommentResponse], len(posts))
+	rChan := make(chan gpars.Task[[]model.CommentResponse], len(posts))
 
-	pool := worker.New()
+	pool := gpars.New().WithMaxGoroutines(2)
 	pool.Go(func() {
 		for i := 0; i < len(posts); i++ {
 			commentTask := <-rChan
@@ -289,14 +290,15 @@ func (r *UsersService) getComments(posts []model.PostDTO) ([]model.CommentDTO, e
 	})
 
 	pool.Go(func() {
-		worker.ForEach(posts, func(postDTO *model.PostDTO) {
-			rChan <- worker.ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
+		gpars.ForEach(posts, func(postDTO *model.PostDTO) {
+			rChan <- gpars.ToTask[[]model.CommentResponse](func() ([]model.CommentResponse, error) {
 				return r.userClient.GetComments(postDTO.ID)
 			})
 		}, runtime.NumCPU()-1)
 	})
 
 	pool.Wait()
+	close(rChan)
 
 	return comments, aggErr
 }
