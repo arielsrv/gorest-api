@@ -34,15 +34,15 @@ func (r *UsersService) GetUsers(page int, perPage int) (*paging.PagedResultDTO[m
 		return nil, aggErr
 	}
 
-	pool := tpl.NewWorkerPool13[model.UserResponse, model.UserDTO, model.PostDTO, model.TodoDTO]()
+	pool := tpl.NewWorkerPool41[model.UserResponse, model.UserDTO, model.PostDTO, model.TodoDTO]()
 
-	var users []model.UserDTO
-	err := pool.Zip(pagedResult.Results, r.getUsers, r.getPosts, r.getTodos,
-		func(usersDTOs []model.UserDTO, postDTOs []model.PostDTO, todoDTOs []model.TodoDTO, err error) {
+	users, err := pool.Zip(pagedResult.Results, r.getUsers, r.getPosts, r.getTodos,
+		func(usersDTOs []model.UserDTO, postDTOs []model.PostDTO, todoDTOs []model.TodoDTO, err error) ([]model.UserDTO, error) {
 			if err != nil {
 				aggErr = multierr.Append(aggErr, err)
 			}
 
+			var users []model.UserDTO
 			for i := 0; i < len(usersDTOs); i++ {
 				userDTO := &usersDTOs[i]
 
@@ -68,6 +68,8 @@ func (r *UsersService) GetUsers(page int, perPage int) (*paging.PagedResultDTO[m
 			slices.SortFunc(users, func(a, b model.UserDTO) int {
 				return cmp.Compare(a.ID, b.ID)
 			})
+
+			return users, err
 		})
 
 	if err != nil {

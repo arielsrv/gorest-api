@@ -1,8 +1,9 @@
 package tpl
 
 import (
-	"go.uber.org/multierr"
 	"runtime"
+
+	"go.uber.org/multierr"
 
 	"github.com/sourcegraph/conc/iter"
 	"github.com/sourcegraph/conc/pool"
@@ -53,21 +54,22 @@ func ForEach[T any](input []T, f func(*T), maxGoroutines ...int) {
 	it.ForEach(input, f)
 }
 
-type WorkerPool13[TInput any, T1 any, T2 any, T3 any] struct {
+type Pool41[TInput any, T1 any, T2 any, T3 any] struct {
 	*pool.Pool
 }
 
-func NewWorkerPool13[TInput any, T1 any, T2 any, T3 any]() *WorkerPool13[TInput, T1, T2, T3] {
-	return &WorkerPool13[TInput, T1, T2, T3]{
+func NewWorkerPool41[TInput any, T1 any, T2 any, T3 any]() *Pool41[TInput, T1, T2, T3] {
+	return &Pool41[TInput, T1, T2, T3]{
 		Pool: pool.New().WithMaxGoroutines(3),
 	}
 }
 
-func (r WorkerPool13[TInput, T1, T2, T3]) Zip(
+func (r *Pool41[TInput, T1, T2, T3]) Zip(
 	elements []TInput,
 	f1 func(elements []TInput) ([]T1, error),
 	f2 func(elements []TInput) ([]T2, error),
-	f3 func(elements []TInput) ([]T3, error), f func(r1 []T1, r2 []T2, r3 []T3, err error)) error {
+	f3 func(elements []TInput) ([]T3, error),
+	f func(r1 []T1, r2 []T2, r3 []T3, err error) ([]T1, error)) ([]T1, error) {
 	var aggErr error
 
 	var r1 []T1
@@ -102,7 +104,10 @@ func (r WorkerPool13[TInput, T1, T2, T3]) Zip(
 
 	r.Pool.Wait()
 
-	f(r1, r2, r3, aggErr)
+	result, err := f(r1, r2, r3, aggErr)
+	if err != nil {
+		return nil, err
+	}
 
-	return aggErr
+	return result, aggErr
 }
