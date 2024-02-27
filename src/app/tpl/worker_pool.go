@@ -1,6 +1,7 @@
 package tpl
 
 import (
+	"go.uber.org/multierr"
 	"runtime"
 
 	"github.com/sourcegraph/conc/iter"
@@ -50,4 +51,58 @@ func ForEach[T any](input []T, f func(*T), maxGoroutines ...int) {
 	}
 
 	it.ForEach(input, f)
+}
+
+type WorkerPool13[TInput any, T1 any, T2 any, T3 any] struct {
+	*pool.Pool
+}
+
+func NewWorkerPool13[TInput any, T1 any, T2 any, T3 any]() *WorkerPool13[TInput, T1, T2, T3] {
+	return &WorkerPool13[TInput, T1, T2, T3]{
+		Pool: pool.New().WithMaxGoroutines(3),
+	}
+}
+
+func (r WorkerPool13[TInput, T1, T2, T3]) Zip(
+	elements []TInput,
+	f1 func(elements []TInput) ([]T1, error),
+	f2 func(elements []TInput) ([]T2, error),
+	f3 func(elements []TInput) ([]T3, error), f func(r1 []T1, r2 []T2, r3 []T3, err error)) error {
+	var aggErr error
+
+	var r1 []T1
+	r.Pool.Go(func() {
+		c1, err := f1(elements)
+		if err != nil {
+			aggErr = multierr.Append(aggErr, err)
+			return
+		}
+		r1 = append(r1, c1...)
+	})
+
+	var r2 []T2
+	r.Pool.Go(func() {
+		c2, err := f2(elements)
+		if err != nil {
+			aggErr = multierr.Append(aggErr, err)
+			return
+		}
+		r2 = append(r2, c2...)
+	})
+
+	var r3 []T3
+	r.Pool.Go(func() {
+		c3, err := f3(elements)
+		if err != nil {
+			aggErr = multierr.Append(aggErr, err)
+			return
+		}
+		r3 = append(r3, c3...)
+	})
+
+	r.Pool.Wait()
+
+	f(r1, r2, r3, aggErr)
+
+	return aggErr
 }
