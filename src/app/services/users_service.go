@@ -34,67 +34,47 @@ func (r *UsersService) GetUsers(page int, perPage int) (*paging.PagedResultDTO[m
 		return nil, aggErr
 	}
 
-	pool := tpl.New().WithMaxGoroutines(3)
+	pool := tpl.NewWorkerPool41[model.UserResponse, model.UserDTO, model.PostDTO, model.TodoDTO]()
 
-	var users []model.UserDTO
-	pool.Submit(func() {
-		usersDTO, err := r.getUsers(pagedResult.Results)
-		if err != nil {
-			aggErr = multierr.Append(aggErr, err)
-			return
-		}
-		users = append(users, usersDTO...)
-	})
-
-	var posts []model.PostDTO
-	pool.Submit(func() {
-		postsDTO, err := r.getPosts(pagedResult.Results)
-		if err != nil {
-			aggErr = multierr.Append(aggErr, err)
-			return
-		}
-		posts = append(posts, postsDTO...)
-	})
-
-	var todos []model.TodoDTO
-	pool.Submit(func() {
-		todosDTO, err := r.getTodos(pagedResult.Results)
-		if err != nil {
-			aggErr = multierr.Append(aggErr, err)
-			return
-		}
-		todos = append(todos, todosDTO...)
-	})
-
-	pool.Wait()
-
-	if aggErr != nil {
-		return nil, aggErr
-	}
-
-	for i := 0; i < len(users); i++ {
-		userDTO := &users[i]
-
-		userDTO.Posts = make([]model.PostDTO, 0)
-		for k := 0; k < len(posts); k++ {
-			postDTO := posts[k]
-			if postDTO.UserID == userDTO.ID {
-				userDTO.Posts = append(userDTO.Posts, postDTO)
+	users, err := pool.Zip(pagedResult.Results, r.getUsers, r.getPosts, r.getTodos,
+		func(usersDTOs []model.UserDTO, postDTOs []model.PostDTO, todoDTOs []model.TodoDTO, err error) ([]model.UserDTO, error) {
+			if err != nil {
+				aggErr = multierr.Append(aggErr, err)
 			}
-		}
 
-		userDTO.Todos = make([]model.TodoDTO, 0)
-		for k := 0; k < len(todos); k++ {
-			todoDTO := todos[k]
-			if todoDTO.UserID == userDTO.ID {
-				userDTO.Todos = append(userDTO.Todos, todoDTO)
+			var users []model.UserDTO
+			for i := 0; i < len(usersDTOs); i++ {
+				userDTO := &usersDTOs[i]
+
+				userDTO.Posts = make([]model.PostDTO, 0)
+				for k := 0; k < len(postDTOs); k++ {
+					postDTO := postDTOs[k]
+					if postDTO.UserID == userDTO.ID {
+						userDTO.Posts = append(userDTO.Posts, postDTO)
+					}
+				}
+
+				userDTO.Todos = make([]model.TodoDTO, 0)
+				for k := 0; k < len(todoDTOs); k++ {
+					todoDTO := todoDTOs[k]
+					if todoDTO.UserID == userDTO.ID {
+						userDTO.Todos = append(userDTO.Todos, todoDTO)
+					}
+				}
+
+				users = append(users, *userDTO)
 			}
-		}
-	}
 
-	slices.SortFunc(users, func(a, b model.UserDTO) int {
-		return cmp.Compare(a.ID, b.ID)
-	})
+			slices.SortFunc(users, func(a, b model.UserDTO) int {
+				return cmp.Compare(a.ID, b.ID)
+			})
+
+			return users, err
+		})
+
+	if err != nil {
+		return nil, err
+	}
 
 	return &paging.PagedResultDTO[model.UserDTO]{
 		Limit:   pagedResult.Limit,

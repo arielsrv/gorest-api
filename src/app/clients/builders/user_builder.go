@@ -8,12 +8,12 @@ import (
 
 func NewUserRequestBuilder() *rest.RequestBuilder {
 	return &rest.RequestBuilder{
+		Name:           "gorest-client",
 		BaseURL:        "https://gorest.co.in/public/v2",
-		Timeout:        time.Duration(2500) * time.Millisecond,
+		Timeout:        time.Duration(3000) * time.Millisecond,
 		ConnectTimeout: time.Duration(5000) * time.Millisecond,
 		CustomPool: &rest.CustomPool{
 			MaxIdleConnsPerHost: 200,
 		},
-		Name: "gorest-client",
 	}
 }
